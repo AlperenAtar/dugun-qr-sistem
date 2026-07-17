@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --primary: #cda434; /* Yedek/Varsayılan Renk */
+      --primary: #cda434;
       --primary-dark: #b38f2d;
       --bg-color: #fcfbf9;
       --text-dark: #2d3748;
@@ -29,105 +29,50 @@
     }
 
     .app-card {
-      background: #ffffff;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
       width: 100%;
       max-width: 420px;
       border-radius: 24px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
       padding: 40px 24px;
       text-align: center;
     }
 
     .header-icon { font-size: 48px; margin-bottom: 10px; }
-    
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); }
     p.subtitle { font-size: 14px; color: var(--text-light); margin-bottom: 30px; }
 
-    /* Gizli dosya inputu */
     input[type="file"] { display: none; }
 
-    /* Dokunmatik Yükleme Alanı */
-    .upload-area {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 20px;
-      border: 2px dashed #e2e8f0;
-      border-radius: 16px;
-      background-color: #f8fafc;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      margin-bottom: 20px;
-    }
-    
+    .upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; border: 2px dashed #e2e8f0; border-radius: 16px; background-color: rgba(248, 250, 252, 0.8); cursor: pointer; transition: all 0.3s ease; margin-bottom: 20px; }
     .upload-area:active { background-color: #f1f5f9; border-color: var(--primary); }
     .upload-area svg { width: 48px; height: 48px; fill: var(--primary); margin-bottom: 12px; }
     .upload-area span { font-size: 15px; font-weight: 500; color: var(--text-dark); }
     .upload-area small { font-size: 12px; color: var(--text-light); margin-top: 4px; }
 
-    /* Önizleme Alanı */
     #previewContainer { display: none; margin-bottom: 20px; position: relative; }
     #imagePreview { width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     
-    .change-photo-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(255,255,255,0.9);
-      border: none;
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-dark);
-      cursor: pointer;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
+    .change-photo-btn { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.9); border: none; padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-dark); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
-    /* Ana Aksiyon Butonu */
-    .btn-primary {
-      width: 100%;
-      padding: 16px;
-      border: none;
-      border-radius: 12px;
-      background-color: var(--primary);
-      color: white;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.3s ease;
-      display: none; /* Başlangıçta gizli */
-    }
-    
+    .btn-primary { width: 100%; padding: 16px; border: none; border-radius: 12px; background-color: var(--primary); color: white; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.3s ease; display: none; }
     .btn-primary:active { background-color: var(--primary-dark); }
     .btn-primary:disabled { background-color: #cbd5e1; cursor: not-allowed; }
 
     #statusMsg { margin-top: 16px; font-size: 14px; font-weight: 500; min-height: 21px; }
 
-    /* Yükleme Animasyonu */
-    .loader {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 3px solid rgba(255,255,255,.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: spin 1s ease-in-out infinite;
-      vertical-align: middle;
-      margin-right: 8px;
-    }
+    .loader { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s ease-in-out infinite; vertical-align: middle; margin-right: 8px; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 
   <div class="app-card">
-    <div class="header-icon">💍</div>
+    <div class="header-icon" id="eventIcon"></div>
     <h1 id="eventTitle">Yükleniyor...</h1>
     <p class="subtitle" id="eventSubtitle">Etkinlik bilgileri alınıyor, lütfen bekleyin.</p>
 
-    <!-- Kullanıcı dostu yükleme alanı (Tıklayınca input'u tetikler) -->
     <label for="fileInput" class="upload-area" id="uploadArea" style="display:none;">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5-7l-3 3.72L9 13l-3 4h14l-4-5z"/>
@@ -138,7 +83,6 @@
     
     <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)" />
 
-    <!-- Önizleme Konteyneri -->
     <div id="previewContainer">
       <button class="change-photo-btn" onclick="resetSelection()">✕ Değiştir</button>
       <img id="imagePreview" alt="Önizleme" />
@@ -150,9 +94,8 @@
 
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
-    const scriptURL = "https://script.google.com/macros/s/AKfycbzF4ywQl6T5b4RpyE7KeO8PUbe9RWQOGiOdNnOa12Yqv30bm0kxDNYfRf5OPKdVXLBy6Q/exec";
+    const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
     
-    // URL'den etkinlik ID'sini al (Örn: localhost:8000/index.html?etkinlik=ayse-ali)
     const urlParams = new URLSearchParams(window.location.search);
     const currentEventId = urlParams.get('etkinlik');
 
@@ -163,7 +106,6 @@
     const uploadBtn = document.getElementById('uploadBtn');
     const status = document.getElementById('statusMsg');
 
-    // Sayfa Yüklenirken Tasarımı Arka Plandan Çek
     window.onload = () => {
       if (!currentEventId) {
         document.getElementById('eventTitle').innerText = "Hata";
@@ -176,13 +118,22 @@
         .then(res => res.json())
         .then(data => {
           if (data.status === 'success') {
-            // Başlıkları ve renkleri uygula
             document.getElementById('eventTitle').innerText = data.title;
             document.getElementById('eventSubtitle').innerText = data.subtitle;
             document.documentElement.style.setProperty('--primary', data.color);
-            document.documentElement.style.setProperty('--primary-dark', data.color + 'cc'); // Hover için hafif saydamı
+            document.documentElement.style.setProperty('--primary-dark', data.color + 'cc'); 
             
-            // Yükleme alanını görünür yap
+            if (data.icon) {
+              document.getElementById('eventIcon').innerText = data.icon;
+            }
+
+            if (data.bgImage) {
+              document.body.style.backgroundImage = `linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url('${data.bgImage}')`;
+              document.body.style.backgroundSize = 'cover';
+              document.body.style.backgroundPosition = 'center';
+              document.body.style.backgroundAttachment = 'fixed';
+            }
+
             uploadArea.style.display = 'flex';
           } else {
             document.getElementById('eventTitle').innerText = "Etkinlik Bulunamadı";
@@ -211,8 +162,6 @@
       
       reader.onload = function(e) {
         const img = new Image();
-        
-        // 1. BAŞARILI YÜKLEME (Gerçek Resimse Burası Çalışır)
         img.onload = function() {
           uploadArea.style.display = 'none';
           imagePreview.src = e.target.result;
@@ -223,10 +172,8 @@
 
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          const MAX_WIDTH = 3000;
-          const MAX_HEIGHT = 3000;
-          let width = img.width;
-          let height = img.height;
+          const MAX_WIDTH = 3000; const MAX_HEIGHT = 3000;
+          let width = img.width; let height = img.height;
 
           if (width > height) {
             if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -234,37 +181,28 @@
             if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
           }
 
-          canvas.width = width;
-          canvas.height = height;
+          canvas.width = width; canvas.height = height;
           ctx.drawImage(img, 0, 0, width, height);
 
-          const dataUrl = canvas.toDataURL(targetMimeType, 0.95);
-          optimizedBase64 = dataUrl.split(',')[1];
+          optimizedBase64 = canvas.toDataURL(targetMimeType, 0.95).split(',')[1];
           originalFileName = originalFileName.replace(/\.[^/.]+$/, "") + ".jpeg";
 
-          status.innerText = "";
-          uploadBtn.disabled = false;
-          uploadBtn.innerText = "Fotoğrafı Gönder";
+          status.innerText = ""; uploadBtn.disabled = false; uploadBtn.innerText = "Fotoğrafı Gönder";
         };
-
-        // 2. HATA YAKALAMA (Sahte/Bozuk Resimse Burası Çalışır) YENİ EKLENEN KISIM
         img.onerror = function() {
           status.innerText = "Hata: Seçilen dosya geçerli veya okunabilir bir fotoğraf değil!";
           status.style.color = "var(--error)";
-          fileInput.value = ""; // Hatalı dosyayı temizle
+          fileInput.value = ""; 
         };
-
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     }
 
     function resetSelection() {
-      fileInput.value = "";
-      optimizedBase64 = null;
+      fileInput.value = ""; optimizedBase64 = null;
       previewContainer.style.display = 'none';
-      uploadBtn.style.display = 'none';
-      uploadArea.style.display = 'flex';
+      uploadBtn.style.display = 'none'; uploadArea.style.display = 'flex';
       status.innerText = "";
     }
 
@@ -277,42 +215,27 @@
       status.style.color = "var(--text-light)";
 
       const payload = {
-        action: "upload",
-        eventId: currentEventId, // Yüklemenin hangi etkinliğe ait olduğunu belirtiyoruz
-        name: Date.now() + "_" + originalFileName,
-        mimeType: targetMimeType,
-        file: optimizedBase64
+        action: "upload", eventId: currentEventId, 
+        name: Date.now() + "_" + originalFileName, mimeType: targetMimeType, file: optimizedBase64
       };
 
-      fetch(scriptURL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      })
+      fetch(scriptURL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
       .then(response => response.json())
       .then(data => {
         if (data.status === 'success') {
           status.innerText = "Harika! Fotoğraf başarıyla gönderildi 🎉";
           status.style.color = "var(--success)";
-          
-          setTimeout(() => {
-            resetSelection();
-            status.innerText = "Başka bir fotoğraf daha yükleyebilirsiniz.";
-            status.style.color = "var(--text-light)";
-          }, 3000);
-
+          setTimeout(() => { resetSelection(); status.innerText = "Başka bir fotoğraf daha yükleyebilirsiniz."; status.style.color = "var(--text-light)"; }, 3000);
         } else {
           status.innerText = "Hata oluştu: " + data.message;
           status.style.color = "var(--error)";
-          uploadBtn.disabled = false;
-          uploadBtn.innerText = "Tekrar Dene";
+          uploadBtn.disabled = false; uploadBtn.innerText = "Tekrar Dene";
         }
       })
       .catch(error => {
         status.innerText = "Bağlantı hatası! İnternetinizi kontrol edin.";
         status.style.color = "var(--error)";
-        uploadBtn.disabled = false;
-        uploadBtn.innerText = "Tekrar Dene";
+        uploadBtn.disabled = false; uploadBtn.innerText = "Tekrar Dene";
       });
     }
   </script>

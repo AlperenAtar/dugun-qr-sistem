@@ -2,16 +2,16 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Güvenli Yönetim Paneli</title>
   <style>
-    body { font-family: system-ui; background: #f4f4f5; display: flex; justify-content: center; padding: 40px; margin: 0;}
-    .card { background: white; padding: 30px; border-radius: 12px; width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    input, button { width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+    body { font-family: system-ui; background: #f4f4f5; display: flex; justify-content: center; padding: 20px; margin: 0; box-sizing: border-box;}
+    .card { background: white; padding: 30px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); box-sizing: border-box;}
+    input, select, button { width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px;}
     button { background: #18181b; color: white; cursor: pointer; font-weight: bold; border: none; transition: background 0.3s; }
     button:hover { background: #3f3f46; }
     label { font-size: 13px; font-weight: 600; color: #555; display: block; margin-bottom: 5px; }
     
-    /* İki Farklı Bölüm Yönetimi */
     #adminSection { display: none; }
     #loginSection { display: block; }
     
@@ -21,18 +21,9 @@
     .logout-btn { background: #ef4444; margin-top: 20px; }
     .logout-btn:hover { background: #dc2626; }
     
-    /* İndirme Butonu Stili */
-    .download-btn {
-      background: #2563eb; 
-      color: white; 
-      margin-top: 10px; 
-      padding: 8px 15px; 
-      font-size: 13px; 
-      border-radius: 6px; 
-      display: inline-block; 
-      width: auto;
-    }
+    .download-btn { background: #2563eb; color: white; margin-top: 10px; padding: 8px 15px; font-size: 13px; border-radius: 6px; display: inline-block; width: auto;}
     .download-btn:hover { background: #1d4ed8; }
+    .helper-text { display: block; margin-top: -10px; margin-bottom: 15px; font-size: 11px; color: #6b7280; }
   </style>
 </head>
 <body>
@@ -41,13 +32,10 @@
   <div class="card" id="loginSection">
     <h2>Sisteme Giriş</h2>
     <p style="font-size: 14px; color: #666;">Yönetim paneline erişmek için giriş yapın.</p>
-    
     <label>E-posta</label>
     <input type="email" id="loginEmail" placeholder="ornek@mail.com">
-    
     <label>Şifre</label>
     <input type="password" id="loginPassword" placeholder="••••••••">
-    
     <button id="loginBtn" onclick="attemptLogin()">Giriş Yap</button>
     <div id="loginError" style="background: #fee2e2; color: #dc2626;"></div>
   </div>
@@ -56,10 +44,10 @@
   <div class="card" id="adminSection">
     <h2>Yeni Etkinlik Oluştur</h2>
     
-    <label>Etkinlik Link Kodu (Boşluksuz: orn: ayse-ali)</label>
+    <label>Etkinlik Link Kodu (Boşluksuz)</label>
     <input type="text" id="eventId" placeholder="ayse-ali-2026">
     
-    <label>Google Drive Klasör Linki</label>
+    <label>Google Drive Klasör Linki (Fotoğrafların Gönderileceği)</label>
     <input type="text" id="folderLink" placeholder="https://drive.google.com/drive/folders/1A2b3C...">
     
     <label>Başlık</label>
@@ -68,8 +56,23 @@
     <label>Alt Başlık / Karşılama Metni</label>
     <input type="text" id="subtitle" placeholder="Anılarımızı paylaştığınız için teşekkürler!">
     
+    <label>Etkinlik Simgesi</label>
+    <select id="eventIcon">
+      <option value="💍">💍 Düğün / Nişan</option>
+      <option value="🎂">🎂 Doğum Günü</option>
+      <option value="👶">👶 Baby Shower</option>
+      <option value="🎓">🎓 Mezuniyet</option>
+      <option value="🎊">🎊 Genel Parti</option>
+      <option value="🏢">🏢 Kurumsal</option>
+      <option value="📸">📸 Sadece Kamera</option>
+    </select>
+
+    <label>Arka Plan Görsel Linki (Opsiyonel)</label>
+    <input type="url" id="bgImage" placeholder="https://google.com/...">
+    
+
     <label>Tema Rengi</label>
-    <input type="color" id="themeColor" value="#cda434" style="height:40px; cursor:pointer;">
+    <input type="color" id="themeColor" value="#cda434" style="height:40px; cursor:pointer; padding:0;">
     
     <button id="saveBtn" onclick="saveEvent()">Etkinliği Kaydet ve Link Oluştur</button>
     <div id="result"></div>
@@ -79,7 +82,7 @@
 
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
-    const scriptURL = "https://script.google.com/macros/s/AKfycbzF4ywQl6T5b4RpyE7KeO8PUbe9RWQOGiOdNnOa12Yqv30bm0kxDNYfRf5OPKdVXLBy6Q/exec";
+    const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
 
     window.onload = () => {
       if (sessionStorage.getItem('isLoggedIn') === 'true') {
@@ -90,29 +93,20 @@
       document.getElementById('loginPassword').addEventListener('input', hideError);
     };
 
-    function hideError() {
-      document.getElementById('loginError').style.display = 'none';
-    }
-
+    function hideError() { document.getElementById('loginError').style.display = 'none'; }
     function showError(message) {
       const errDiv = document.getElementById('loginError');
       errDiv.innerText = message;
       errDiv.style.display = 'block';
     }
 
-    // GİRİŞ YAPMA FONKSİYONU
     function attemptLogin() {
       const email = document.getElementById('loginEmail').value.trim();
       const password = document.getElementById('loginPassword').value;
       const btn = document.getElementById('loginBtn');
-
       hideError();
 
       if (!email || !password) { showError("Lütfen e-posta ve şifre alanlarını boş bırakmayın."); return; }
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) { showError("Lütfen geçerli bir e-posta adresi girin."); return; }
-      if (password.length < 5) { showError("Şifre çok kısa. Lütfen geçerli bir şifre girin."); return; }
-
       btn.disabled = true;
       btn.innerText = "Kontrol ediliyor...";
 
@@ -123,7 +117,6 @@
           sessionStorage.setItem('isLoggedIn', 'true');
           sessionStorage.setItem('adminEmail', email);
           sessionStorage.setItem('adminPwd', password);
-          
           document.getElementById('loginSection').style.display = 'none';
           document.getElementById('adminSection').style.display = 'block';
         } else {
@@ -133,7 +126,7 @@
         }
       })
       .catch(err => {
-        showError("Sunucuya bağlanılamadı. Lütfen internetinizi kontrol edin.");
+        showError("Sunucuya bağlanılamadı.");
         btn.disabled = false;
         btn.innerText = "Giriş Yap";
       });
@@ -144,15 +137,12 @@
       window.location.reload();
     }
 
-    // QR KOD İNDİRME FONKSİYONU
     function downloadQR(url, eventName) {
       const btn = document.getElementById('downloadQrBtn');
       btn.innerText = "İndiriliyor...";
       btn.disabled = true;
 
-      fetch(url)
-        .then(response => response.blob())
-        .then(blob => {
+      fetch(url).then(response => response.blob()).then(blob => {
           const blobUrl = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.style.display = 'none';
@@ -162,43 +152,37 @@
           a.click();
           window.URL.revokeObjectURL(blobUrl);
           document.body.removeChild(a);
-          
           btn.innerText = "⬇️ QR Kodu İndir";
           btn.disabled = false;
-        })
-        .catch(() => {
-          alert("İndirme başarısız oldu. Lütfen QR koda sağ tıklayıp 'Resmi Farklı Kaydet' diyerek indirin.");
+        }).catch(() => {
+          alert("İndirme başarısız oldu. Sağ tıklayıp 'Resmi Farklı Kaydet' diyerek indirin.");
           btn.innerText = "⬇️ QR Kodu İndir";
           btn.disabled = false;
         });
     }
 
-    // KLASÖR LİNKİNDEN ID AYIKLAMA FONKSİYONU
     function extractFolderId(input) {
-      // Eğer kullanıcı zaten direkt ID girmişse (içinde '/' yoksa) aynen döndür
       if (!input.includes('/')) return input;
-      
-      // Standart klasör linkinden ayıkla: /folders/ID_KİSMİ
       const match = input.match(/\/folders\/([a-zA-Z0-9-_]+)/);
-      if (match && match[1]) {
-        return match[1];
-      }
-      
-      // Alternatif link yapılarından (open?id=ID_KİSMİ) ayıkla
+      if (match && match[1]) return match[1];
       const idMatch = input.match(/id=([a-zA-Z0-9-_]+)/);
-      if (idMatch && idMatch[1]) {
-        return idMatch[1];
-      }
-      
-      // Hiçbir formata uymazsa
+      if (idMatch && idMatch[1]) return idMatch[1];
       return null;
     }
 
-    // ETKİNLİK KAYDETME FONKSİYONU
+    // Google Drive resim linklerini ham (raw) resim verisi çekecek formata dönüştürür
+    function formatImageUrl(input) {
+      if (!input) return "";
+      const match = input.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+      if (match && match[1]) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+      const idMatch = input.match(/id=([a-zA-Z0-9-_]+)/);
+      if (idMatch && idMatch[1] && input.includes('drive.google.com')) return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
+      return input;
+    }
+
     function saveEvent() {
       const btn = document.getElementById('saveBtn');
       const resDiv = document.getElementById('result');
-      
       const eventId = document.getElementById('eventId').value.trim();
       const folderLinkInput = document.getElementById('folderLink').value.trim();
       
@@ -206,21 +190,19 @@
       if(!folderLinkInput) { alert("Lütfen Google Drive klasör linkini girin."); return; }
 
       const extractedFolderId = extractFolderId(folderLinkInput);
-      
-      if(!extractedFolderId) { 
-        alert("Klasör linki geçerli değil. Lütfen doğru bir Google Drive klasör linki kopyaladığınızdan emin olun."); 
-        return; 
-      }
+      if(!extractedFolderId) { alert("Klasör linki geçerli değil."); return; }
 
       const payload = {
         action: "saveConfig",
         email: sessionStorage.getItem('adminEmail'),
         password: sessionStorage.getItem('adminPwd'),
         eventId: eventId,
-        folderId: extractedFolderId, // Ayıklanan ID'yi backend'e gönderiyoruz
+        folderId: extractedFolderId,
         title: document.getElementById('title').value,
         subtitle: document.getElementById('subtitle').value,
-        color: document.getElementById('themeColor').value
+        color: document.getElementById('themeColor').value,
+        icon: document.getElementById('eventIcon').value,
+        bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()) // Dönüştürücü uygulandı
       };
 
       btn.disabled = true;
@@ -242,8 +224,7 @@
           resDiv.innerHTML = `
             <b style="color:#16a34a; font-size:16px;">Başarılı!</b><br><br>
             Misafir Linki:<br>
-            <a href="${guestUrl}" target="_blank" style="word-break: break-all; color:#2563eb;">${guestUrl}</a>
-            <br><br>
+            <a href="${guestUrl}" target="_blank" style="word-break: break-all; color:#2563eb;">${guestUrl}</a><br><br>
             <b>Masa QR Kodu:</b><br>
             <img src="${qrCodeUrl}" alt="QR Kod" style="width: 200px; height: 200px;"><br>
             <button id="downloadQrBtn" class="download-btn" onclick="downloadQR('${qrCodeUrl}', '${eventId}')">⬇️ QR Kodu İndir</button>
@@ -252,8 +233,7 @@
           resDiv.style.background = '#fee2e2';
           resDiv.innerHTML = `<b style="color:#dc2626;">Hata:</b> ${data.message}`;
         }
-      })
-      .catch(err => {
+      }).catch(err => {
         resDiv.style.display = 'block';
         resDiv.style.background = '#fee2e2';
         resDiv.innerHTML = `<b style="color:#dc2626;">Bağlantı Hatası:</b> Lütfen internetinizi kontrol edin.`;
