@@ -24,6 +24,7 @@
     .download-btn { background: #2563eb; color: white; margin-top: 10px; padding: 8px 15px; font-size: 13px; border-radius: 6px; display: inline-block; width: auto;}
     .download-btn:hover { background: #1d4ed8; }
     .helper-text { display: block; margin-top: -10px; margin-bottom: 15px; font-size: 11px; color: #6b7280; }
+    .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin: 20px 0 10px; border-top: 1px solid #eee; padding-top: 15px; }
   </style>
 </head>
 <body>
@@ -68,11 +69,35 @@
     </select>
 
     <label>Arka Plan Görsel Linki (Opsiyonel)</label>
-    <input type="url" id="bgImage" placeholder="https://google.com/...">
-    
+    <input type="url" id="bgImage" placeholder="https://drive.google.com/file/d/...">
+    <span class="helper-text">Google Drive linki verirken dosyayı "Bağlantıya sahip olan herkes görüntüleyebilir" olarak paylaştığınızdan emin olun. Drive dışı bir görsel linki (ör. Unsplash) de kullanabilirsiniz.</span>
 
     <label>Tema Rengi</label>
     <input type="color" id="themeColor" value="#cda434" style="height:40px; cursor:pointer; padding:0;">
+
+    <div class="section-title">Davetiye Görünümü</div>
+
+    <label>Yazı Tipi Teması</label>
+    <select id="fontTheme">
+      <option value="classic-lux">Klasik Lüks (Playfair + Cormorant)</option>
+      <option value="romantic">Romantik El Yazısı</option>
+      <option value="modern-sade">Modern Sade</option>
+    </select>
+
+    <label>Çerçeve Stili</label>
+    <select id="frameStyle">
+      <option value="double">Çift Çizgi (Zarif)</option>
+      <option value="single">Tek İnce Çizgi</option>
+      <option value="none">Çerçevesiz</option>
+    </select>
+
+    <label>Ayırıcı Süsleme</label>
+    <select id="ornament">
+      <option value="diamond">✦ Elmas Ayırıcı</option>
+      <option value="floral">❦ Yaprak Süsü</option>
+      <option value="line">Düz Çizgi</option>
+      <option value="none">Yok</option>
+    </select>
     
     <button id="saveBtn" onclick="saveEvent()">Etkinliği Kaydet ve Link Oluştur</button>
     <div id="result"></div>
@@ -170,13 +195,34 @@
       return null;
     }
 
-    // Google Drive resim linklerini ham (raw) resim verisi çekecek formata dönüştürür
+    // Google Drive resim linklerini ham (raw) resim verisi çekecek formata dönüştürür.
+    // "uc?export=view" formatı tarayıcılarda ve <img>/background-image olarak sık sık
+    // yüklenemiyordu (Drive'ın virüs taraması arasayfası, yönlendirme/referrer kısıtlamaları vb.).
+    // "thumbnail" uç noktası doğrudan görüntü verisi döndürdüğü için çok daha güvenilir çalışıyor.
     function formatImageUrl(input) {
       if (!input) return "";
-      const match = input.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
-      if (match && match[1]) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-      const idMatch = input.match(/id=([a-zA-Z0-9-_]+)/);
-      if (idMatch && idMatch[1] && input.includes('drive.google.com')) return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
+      let id = null;
+
+      // https://drive.google.com/file/d/FILE_ID/view...
+      const fileMatch = input.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+      if (fileMatch && fileMatch[1]) id = fileMatch[1];
+
+      // https://drive.google.com/open?id=FILE_ID  veya  ...&id=FILE_ID
+      if (!id) {
+        const idMatch = input.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+        if (idMatch && idMatch[1]) id = idMatch[1];
+      }
+
+      // Kullanıcı doğrudan dosya ID'sini yapıştırdıysa (link değil, sadece ID)
+      if (!id && !input.includes('/') && !input.toLowerCase().includes('http') && input.trim().length > 15) {
+        id = input.trim();
+      }
+
+      if (id) {
+        return `https://drive.google.com/thumbnail?id=${id}&sz=w1920`;
+      }
+
+      // Drive linki değilse (ör. Unsplash, imgur vb.) olduğu gibi bırak
       return input;
     }
 
@@ -202,7 +248,10 @@
         subtitle: document.getElementById('subtitle').value,
         color: document.getElementById('themeColor').value,
         icon: document.getElementById('eventIcon').value,
-        bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()) // Dönüştürücü uygulandı
+        bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()), // Dönüştürücü uygulandı
+        fontTheme: document.getElementById('fontTheme').value,
+        frameStyle: document.getElementById('frameStyle').value,
+        ornament: document.getElementById('ornament').value
       };
 
       btn.disabled = true;
