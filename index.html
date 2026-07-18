@@ -288,14 +288,6 @@
     let optimizedBase64 = null;
     let originalFileName = "";
     let uploadMimeType = "image/jpeg";
-    let activePreviewUrl = null; // en son oluşturulan object URL - bellek sızıntısı olmasın diye takip edilir
-
-    function revokeActivePreviewUrl() {
-      if (activePreviewUrl) {
-        URL.revokeObjectURL(activePreviewUrl);
-        activePreviewUrl = null;
-      }
-    }
 
     // Tarayıcı dosyanın MIME tipini vermezse (bazı Android/HEIC senaryolarında olur)
     // uzantıdan makul bir tahmin üretir. Sunucu tarafı sadece "image/..." ile
@@ -319,6 +311,12 @@
       return name.endsWith('.heic') || name.endsWith('.heif');
     }
 
+    // NOT: Önizleme/decode testi için kasıtlı olarak base64 (data URI) kullanıyoruz,
+    // "object URL" (blob:) değil. Object URL'ler bazı uygulama-içi tarayıcılarda
+    // (ör. Instagram, WhatsApp'ın kendi içinde açtığı tarayıcı - düğün/etkinlik QR
+    // linkleri genelde böyle açılır) görsel kaynağı olarak güvenilir çalışmıyor.
+    // Base64/data URI yöntemi her ortamda çalışır; bu yüzden en "doğru" seçim bu.
+    // Dosya SADECE BİR KEZ okunuyor ve aynı veri her senaryoda yeniden kullanılıyor.
     function handleFileSelect(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -328,82 +326,92 @@
       status.style.color = "var(--text-light)";
       uploadBtn.style.display = 'none';
 
-      // Object URL, dosyayı devasa bir base64 metnine çevirip <img> etiketine vermekten
-      // (eski yöntem) çok daha hafif ve güvenilir - özellikle yüksek çözünürlüklü kamera
-      // fotoğraflarında önizlemenin başarısız olmasının asıl sebebi buydu.
-      const objectUrl = URL.createObjectURL(file);
-      activePreviewUrl = objectUrl;
+      const reader = new FileReader();
 
-      const img = new Image();
-
-      img.onload = function() {
-        try {
-          processViaCanvas(img, file, objectUrl);
-        } catch (err) {
-          // Canvas işleme (nadir durumlarda bellek/renk profili sorunları) başarısız
-          // olursa kullanıcıyı engellemek yerine orijinal dosyayı gönderiyoruz.
-          useOriginalFile(file, objectUrl);
-        }
+      reader.onerror = function() {
+        status.innerText = "Hata: Dosya okunamadı. Lütfen tekrar deneyin.";
+        status.style.color = "var(--error)";
       };
 
-      img.onerror = function() {
-        // Tarayıcı bu görsel formatını doğrudan çözemedi. Gerçekten HEIC/HEIF ise
-        // dönüştürmeyi deniyoruz; değilse hemen orijinal dosyayı gönderiyoruz -
-        // boşuna "dönüştürülüyor" ekranında bekletmiyoruz.
-        if (isHeicFile(file) && typeof heic2any === 'function') {
-          convertHeicAndProcess(file, objectUrl);
-        } else {
-          useOriginalFile(file, objectUrl);
-        }
+      reader.onload = function(e) {
+        const dataUrl = e.target.result;
+        const img = new Image();
+
+        img.onload = function() {
+          try {
+            processViaCanvas(img, file, dataUrl);
+          } catch (err) {
+            // Canvas işleme (nadir durumlarda bellek/renk profili sorunları) başarısız
+            // olursa kullanıcıyı engellemek yerine elimizdeki veriyi olduğu gibi gönderiyoruz.
+            useOriginalFile(file, dataUrl);
+          }
+        };
+
+        img.onerror = function() {
+          // Tarayıcı bu görsel formatını doğrudan çözemedi. Gerçekten HEIC/HEIF ise
+          // dönüştürmeyi deniyoruz; değilse hemen elimizdeki veriyi gönderiyoruz -
+          // boşuna "dönüştürülüyor" ekranında bekletmiyoruz.
+          if (isHeicFile(file) && typeof heic2any === 'function') {
+            convertHeicAndProcess(file, dataUrl);
+          } else {
+            useOriginalFile(file, dataUrl);
+          }
+        };
+
+        img.src = dataUrl;
       };
 
-      img.src = objectUrl;
+      reader.readAsDataURL(file);
     }
 
-    function convertHeicAndProcess(file, originalUrl) {
-      status.innerText = "Fotoğraf formatı dönüştürülüyor...";
+    function convertHeicAndProcess(file, originalDataUrl) {
+      status.innerText = "Fotoğraf formatı dönüştürülüyor, bu biraz sürebilir...";
       status.style.color = "var(--text-light)";
 
-      const conversion = Promise.resolve(heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }));
-      // Dönüştürme herhangi bir sebeple takılırsa arayüz sonsuza kadar beklemesin diye
-      // sert bir zaman aşımı sınırı: 9 saniye içinde sonuç gelmezse orijinali gönderiyoruz.
+      const conversion = Promise.resolve(heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 }));
+      // Yüksek çözünürlüklü HEIC dosyalarının dönüştürülmesi eski telefonlarda gerçekten
+      // uzun sürebilir; çok kısa bir sınır koymak boşuna yedek moda düşmeye ("sahte" hata)
+      // neden olur. 20 saniye makul bir üst sınır - bu süreyi de geçerse arayüz asla
+      // sonsuza kadar beklemez, otomatik olarak elimizdeki orijinal veriyi gönderir.
       const timeout = new Promise(function(_, reject) {
-        setTimeout(function() { reject(new Error('heic-conversion-timeout')); }, 9000);
+        setTimeout(function() { reject(new Error('heic-conversion-timeout')); }, 20000);
       });
 
       Promise.race([conversion, timeout])
         .then(function(result) {
           const blob = Array.isArray(result) ? result[0] : result;
-          const convertedUrl = URL.createObjectURL(blob);
-          const convertedImg = new Image();
+          const convertedReader = new FileReader();
 
-          convertedImg.onload = function() {
-            activePreviewUrl = convertedUrl;
-            try {
-              processViaCanvas(convertedImg, file, convertedUrl);
-            } catch (err) {
-              useOriginalFile(file, originalUrl);
-              URL.revokeObjectURL(convertedUrl);
-            }
+          convertedReader.onload = function(ev) {
+            const convertedDataUrl = ev.target.result;
+            const convertedImg = new Image();
+
+            convertedImg.onload = function() {
+              try {
+                processViaCanvas(convertedImg, file, convertedDataUrl);
+              } catch (err) {
+                useOriginalFile(file, originalDataUrl);
+              }
+            };
+            convertedImg.onerror = function() { useOriginalFile(file, originalDataUrl); };
+            convertedImg.src = convertedDataUrl;
           };
-          convertedImg.onerror = function() {
-            URL.revokeObjectURL(convertedUrl);
-            useOriginalFile(file, originalUrl);
-          };
-          convertedImg.src = convertedUrl;
+
+          convertedReader.onerror = function() { useOriginalFile(file, originalDataUrl); };
+          convertedReader.readAsDataURL(blob);
         })
         .catch(function() {
-          // Dönüştürme başarısız olur ya da zaman aşımına uğrarsa kullanıcıyı
-          // beklemede bırakmıyoruz - orijinal dosyayı olduğu gibi gönderiyoruz.
-          useOriginalFile(file, originalUrl);
+          // Dönüştürme başarısız olur ya da zaman aşımına uğrarsa, dosyayı tekrar
+          // okumaya gerek yok - ilk okumada elde ettiğimiz veriyi doğrudan kullanıyoruz.
+          useOriginalFile(file, originalDataUrl);
         });
     }
 
-    function processViaCanvas(img, file, previewUrl) {
+    function processViaCanvas(img, file, previewDataUrl) {
       uploadArea.style.display = 'none';
       imagePreview.onerror = null;
       imagePreview.style.display = 'block';
-      imagePreview.src = previewUrl;
+      imagePreview.src = previewDataUrl;
       previewContainer.style.display = 'block';
       uploadBtn.style.display = 'block';
       uploadBtn.disabled = true;
@@ -435,49 +443,38 @@
       status.innerText = ""; uploadBtn.disabled = false; uploadBtn.innerText = "Fotoğrafı Gönder";
     }
 
-    function useOriginalFile(file, previewUrl) {
+    function useOriginalFile(file, dataUrl) {
       uploadArea.style.display = 'none';
       previewContainer.style.display = 'block';
-      status.innerText = "Fotoğraf hazırlanıyor...";
-      status.style.color = "var(--text-light)";
 
-      // Önizleme için object URL'i deniyoruz; başarısız olursa görseli gizleyip
-      // metinle devam ediyoruz. Yükleme her durumda çalışır.
+      // Önizlemeyi elimizdeki veriyle deniyoruz; tarayıcı bu formatı hiç
+      // gösteremiyorsa (nadir) görseli gizleyip metinle devam ediyoruz.
+      // Yükleme her durumda çalışır çünkü zaten elimizde geçerli base64 veri var.
       imagePreview.onerror = function() {
         imagePreview.style.display = 'none';
       };
       imagePreview.style.display = 'block';
-      imagePreview.src = previewUrl;
+      imagePreview.src = dataUrl;
 
+      optimizedBase64 = dataUrl.split(',')[1];
       uploadMimeType = guessMimeType(file);
       originalFileName = file.name || ('fotograf_' + Date.now() + '.jpg');
 
-      // Yükleme için gerçek dosya baytlarını base64'e çeviriyoruz - bunu sadece
-      // bu (nadir) yedek durumda yapıyoruz, her fotoğraf için değil.
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        optimizedBase64 = e.target.result.split(',')[1];
-        uploadBtn.style.display = 'block';
-        uploadBtn.disabled = false;
-        uploadBtn.innerText = "Fotoğrafı Gönder";
-        status.innerText = "Fotoğraf gönderime hazır.";
-        status.style.color = "var(--text-light)";
-      };
-      reader.onerror = function() {
-        status.innerText = "Hata: Dosya okunamadı. Lütfen tekrar deneyin.";
-        status.style.color = "var(--error)";
-      };
-      reader.readAsDataURL(file);
+      uploadBtn.style.display = 'block';
+      uploadBtn.disabled = false;
+      uploadBtn.innerText = "Fotoğrafı Gönder";
+      status.innerText = "Fotoğraf gönderime hazır.";
+      status.style.color = "var(--text-light)";
     }
 
     function resetSelection() {
       fileInput.value = ""; optimizedBase64 = null; uploadMimeType = "image/jpeg";
-      revokeActivePreviewUrl();
       imagePreview.onerror = null; imagePreview.style.display = 'block'; imagePreview.src = '';
       previewContainer.style.display = 'none';
       uploadBtn.style.display = 'none'; uploadArea.style.display = 'flex';
       status.innerText = "";
     }
+
 
     function uploadFile() {
       if (!optimizedBase64 || !currentEventId) return;
