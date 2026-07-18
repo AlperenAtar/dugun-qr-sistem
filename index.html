@@ -288,6 +288,14 @@
     let optimizedBase64 = null;
     let originalFileName = "";
     let uploadMimeType = "image/jpeg";
+    let activePreviewUrl = null; // en son oluşturulan object URL - bellek sızıntısı olmasın diye takip edilir
+
+    function revokeActivePreviewUrl() {
+      if (activePreviewUrl) {
+        URL.revokeObjectURL(activePreviewUrl);
+        activePreviewUrl = null;
+      }
+    }
 
     // Tarayıcı dosyanın MIME tipini vermezse (bazı Android/HEIC senaryolarında olur)
     // uzantıdan makul bir tahmin üretir. Sunucu tarafı sadece "image/..." ile
@@ -304,6 +312,13 @@
       return map[ext] || 'image/jpeg';
     }
 
+    function isHeicFile(file) {
+      const type = (file.type || '').toLowerCase();
+      if (type === 'image/heic' || type === 'image/heif') return true;
+      const name = (file.name || '').toLowerCase();
+      return name.endsWith('.heic') || name.endsWith('.heif');
+    }
+
     function handleFileSelect(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -313,85 +328,82 @@
       status.style.color = "var(--text-light)";
       uploadBtn.style.display = 'none';
 
-      const reader = new FileReader();
+      // Object URL, dosyayı devasa bir base64 metnine çevirip <img> etiketine vermekten
+      // (eski yöntem) çok daha hafif ve güvenilir - özellikle yüksek çözünürlüklü kamera
+      // fotoğraflarında önizlemenin başarısız olmasının asıl sebebi buydu.
+      const objectUrl = URL.createObjectURL(file);
+      activePreviewUrl = objectUrl;
 
-      reader.onerror = function() {
-        status.innerText = "Hata: Dosya okunamadı. Lütfen tekrar deneyin.";
-        status.style.color = "var(--error)";
+      const img = new Image();
+
+      img.onload = function() {
+        try {
+          processViaCanvas(img, file, objectUrl);
+        } catch (err) {
+          // Canvas işleme (nadir durumlarda bellek/renk profili sorunları) başarısız
+          // olursa kullanıcıyı engellemek yerine orijinal dosyayı gönderiyoruz.
+          useOriginalFile(file, objectUrl);
+        }
       };
 
-      reader.onload = function(e) {
-        const dataUrl = e.target.result;
-        const img = new Image();
-
-        img.onload = function() {
-          try {
-            processViaCanvas(img, file);
-          } catch (err) {
-            // Canvas işleme (nadir durumlarda bellek/renk profili sorunları) başarısız
-            // olursa kullanıcıyı engellemek yerine orijinal dosyayı gönderiyoruz.
-            useOriginalFile(file, dataUrl);
-          }
-        };
-
-        img.onerror = function() {
-          // Tarayıcı bu görsel formatını (ör. iPhone HEIC/HEIF fotoğrafları) doğrudan
-          // önizleyip sıkıştıramıyor olabilir. Önce istemci tarafında (kullanıcının
-          // kendi tarayıcısında, hiçbir şey sunucuya gitmeden) JPEG'e çevirmeyi
-          // deniyoruz - böylece gerçek bir önizleme ve küçültme mümkün olur.
-          convertHeicAndProcess(file, dataUrl);
-        };
-
-        img.src = dataUrl;
+      img.onerror = function() {
+        // Tarayıcı bu görsel formatını doğrudan çözemedi. Gerçekten HEIC/HEIF ise
+        // dönüştürmeyi deniyoruz; değilse hemen orijinal dosyayı gönderiyoruz -
+        // boşuna "dönüştürülüyor" ekranında bekletmiyoruz.
+        if (isHeicFile(file) && typeof heic2any === 'function') {
+          convertHeicAndProcess(file, objectUrl);
+        } else {
+          useOriginalFile(file, objectUrl);
+        }
       };
 
-      reader.readAsDataURL(file);
+      img.src = objectUrl;
     }
 
-    function convertHeicAndProcess(file, originalDataUrl) {
-      if (typeof heic2any !== 'function') {
-        useOriginalFile(file, originalDataUrl);
-        return;
-      }
-
+    function convertHeicAndProcess(file, originalUrl) {
       status.innerText = "Fotoğraf formatı dönüştürülüyor...";
       status.style.color = "var(--text-light)";
 
-      heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 })
+      const conversion = Promise.resolve(heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }));
+      // Dönüştürme herhangi bir sebeple takılırsa arayüz sonsuza kadar beklemesin diye
+      // sert bir zaman aşımı sınırı: 9 saniye içinde sonuç gelmezse orijinali gönderiyoruz.
+      const timeout = new Promise(function(_, reject) {
+        setTimeout(function() { reject(new Error('heic-conversion-timeout')); }, 9000);
+      });
+
+      Promise.race([conversion, timeout])
         .then(function(result) {
           const blob = Array.isArray(result) ? result[0] : result;
-          const convertedReader = new FileReader();
+          const convertedUrl = URL.createObjectURL(blob);
+          const convertedImg = new Image();
 
-          convertedReader.onload = function(ev) {
-            const convertedDataUrl = ev.target.result;
-            const convertedImg = new Image();
-
-            convertedImg.onload = function() {
-              try {
-                processViaCanvas(convertedImg, file);
-              } catch (err) {
-                useOriginalFile(file, convertedDataUrl);
-              }
-            };
-            convertedImg.onerror = function() { useOriginalFile(file, originalDataUrl); };
-            convertedImg.src = convertedDataUrl;
+          convertedImg.onload = function() {
+            activePreviewUrl = convertedUrl;
+            try {
+              processViaCanvas(convertedImg, file, convertedUrl);
+            } catch (err) {
+              useOriginalFile(file, originalUrl);
+              URL.revokeObjectURL(convertedUrl);
+            }
           };
-
-          convertedReader.onerror = function() { useOriginalFile(file, originalDataUrl); };
-          convertedReader.readAsDataURL(blob);
+          convertedImg.onerror = function() {
+            URL.revokeObjectURL(convertedUrl);
+            useOriginalFile(file, originalUrl);
+          };
+          convertedImg.src = convertedUrl;
         })
         .catch(function() {
-          // Dönüştürme başarısız olursa (kütüphane yüklenememiş, desteklenmeyen
-          // alt tür vb.) kullanıcıyı yine de engellemiyoruz - orijinal dosyayı gönderiyoruz.
-          useOriginalFile(file, originalDataUrl);
+          // Dönüştürme başarısız olur ya da zaman aşımına uğrarsa kullanıcıyı
+          // beklemede bırakmıyoruz - orijinal dosyayı olduğu gibi gönderiyoruz.
+          useOriginalFile(file, originalUrl);
         });
     }
 
-    function processViaCanvas(img, file) {
+    function processViaCanvas(img, file, previewUrl) {
       uploadArea.style.display = 'none';
       imagePreview.onerror = null;
       imagePreview.style.display = 'block';
-      imagePreview.src = img.src;
+      imagePreview.src = previewUrl;
       previewContainer.style.display = 'block';
       uploadBtn.style.display = 'block';
       uploadBtn.disabled = true;
@@ -423,33 +435,45 @@
       status.innerText = ""; uploadBtn.disabled = false; uploadBtn.innerText = "Fotoğrafı Gönder";
     }
 
-    function useOriginalFile(file, dataUrl) {
+    function useOriginalFile(file, previewUrl) {
       uploadArea.style.display = 'none';
       previewContainer.style.display = 'block';
+      status.innerText = "Fotoğraf hazırlanıyor...";
+      status.style.color = "var(--text-light)";
 
-      // Bu format (ör. HEIC) tarayıcıda önizlenemeyebilir; önizleme başarısız
-      // olursa görseli gizleyip bilgilendirici bir mesaj gösteriyoruz.
-      // Yükleme işlemi buna rağmen sorunsuz devam eder.
+      // Önizleme için object URL'i deniyoruz; başarısız olursa görseli gizleyip
+      // metinle devam ediyoruz. Yükleme her durumda çalışır.
       imagePreview.onerror = function() {
         imagePreview.style.display = 'none';
       };
       imagePreview.style.display = 'block';
-      imagePreview.src = dataUrl;
+      imagePreview.src = previewUrl;
 
-      optimizedBase64 = dataUrl.split(',')[1];
       uploadMimeType = guessMimeType(file);
       originalFileName = file.name || ('fotograf_' + Date.now() + '.jpg');
 
-      uploadBtn.style.display = 'block';
-      uploadBtn.disabled = false;
-      uploadBtn.innerText = "Fotoğrafı Gönder";
-      status.innerText = "Fotoğraf gönderime hazır.";
-      status.style.color = "var(--text-light)";
+      // Yükleme için gerçek dosya baytlarını base64'e çeviriyoruz - bunu sadece
+      // bu (nadir) yedek durumda yapıyoruz, her fotoğraf için değil.
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        optimizedBase64 = e.target.result.split(',')[1];
+        uploadBtn.style.display = 'block';
+        uploadBtn.disabled = false;
+        uploadBtn.innerText = "Fotoğrafı Gönder";
+        status.innerText = "Fotoğraf gönderime hazır.";
+        status.style.color = "var(--text-light)";
+      };
+      reader.onerror = function() {
+        status.innerText = "Hata: Dosya okunamadı. Lütfen tekrar deneyin.";
+        status.style.color = "var(--error)";
+      };
+      reader.readAsDataURL(file);
     }
 
     function resetSelection() {
       fileInput.value = ""; optimizedBase64 = null; uploadMimeType = "image/jpeg";
-      imagePreview.onerror = null; imagePreview.style.display = 'block';
+      revokeActivePreviewUrl();
+      imagePreview.onerror = null; imagePreview.style.display = 'block'; imagePreview.src = '';
       previewContainer.style.display = 'none';
       uploadBtn.style.display = 'none'; uploadArea.style.display = 'flex';
       status.innerText = "";
