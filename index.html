@@ -39,13 +39,28 @@
 
     body {
       background-color: var(--bg-color);
-      background-image: radial-gradient(circle at 50% -10%, rgba(205, 164, 52, 0.08), transparent 55%);
       color: var(--text-dark);
       display: flex;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
       padding: 20px;
+      position: relative;
+    }
+
+    /* Sabit arka plan katmanı. Mobil tarayıcılarda (özellikle iOS Safari)
+       "background-attachment: fixed" güvenilir çalışmıyor ve adres çubuğu
+       gizlenip göründükçe ya da sayfa kaydırıldıkça görsel titreşip kayıyordu.
+       Gerçek bir position:fixed katman kullanmak bunu tamamen ortadan kaldırır. */
+    .bg-layer {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background-color: var(--bg-color);
+      background-image: radial-gradient(circle at 50% -10%, rgba(205, 164, 52, 0.08), transparent 55%);
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
     }
 
     .app-card {
@@ -145,6 +160,8 @@
 </head>
 <body data-font-theme="classic-lux">
 
+  <div class="bg-layer" id="bgLayer"></div>
+
   <div class="app-card frame-double" id="appCard">
     <div class="header-icon" id="eventIcon"></div>
     <h1 id="eventTitle">Yükleniyor...</h1>
@@ -236,10 +253,7 @@
             }
 
             if (data.bgImage) {
-              document.body.style.backgroundImage = `linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url('${data.bgImage}')`;
-              document.body.style.backgroundSize = 'cover';
-              document.body.style.backgroundPosition = 'center';
-              document.body.style.backgroundAttachment = 'fixed';
+              document.getElementById('bgLayer').style.backgroundImage = `linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url('${data.bgImage}')`;
             }
 
             applyInvitationStyle(data);
