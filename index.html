@@ -204,7 +204,7 @@
     <p id="statusMsg"></p>
   </div>
 
-  <!-- iPhone HEIC/HEIF fotoğraflarını tarayıcıda önizlemek/küçültmek için (yalnızca gerektiğinde kullanılır) -->
+  <!-- iPhone HEIC/HEIF fotoğraflarını tarayıcıda önizlemek/küçültmek için (yalnızca gerektiğinde, yedek yöntem olarak kullanılır) -->
   <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
@@ -289,21 +289,6 @@
     let originalFileName = "";
     let uploadMimeType = "image/jpeg";
 
-    // Tarayıcı dosyanın MIME tipini vermezse (bazı Android/HEIC senaryolarında olur)
-    // uzantıdan makul bir tahmin üretir. Sunucu tarafı sadece "image/..." ile
-    // başlayan tipleri kabul ediyor, bu yüzden bilinmeyen durumda bile geçerli
-    // bir görsel MIME tipi döndürülür (seçici zaten sadece görsel gösteriyor).
-    function guessMimeType(file) {
-      if (file.type && file.type.indexOf('image/') === 0) return file.type;
-      const ext = (file.name || '').split('.').pop().toLowerCase();
-      const map = {
-        heic: 'image/heic', heif: 'image/heif', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-        png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp',
-        tif: 'image/tiff', tiff: 'image/tiff'
-      };
-      return map[ext] || 'image/jpeg';
-    }
-
     function isHeicFile(file) {
       const type = (file.type || '').toLowerCase();
       if (type === 'image/heic' || type === 'image/heif') return true;
@@ -311,116 +296,81 @@
       return name.endsWith('.heic') || name.endsWith('.heif');
     }
 
-    // NOT: Önizleme/decode testi için kasıtlı olarak base64 (data URI) kullanıyoruz,
-    // "object URL" (blob:) değil. Object URL'ler bazı uygulama-içi tarayıcılarda
-    // (ör. Instagram, WhatsApp'ın kendi içinde açtığı tarayıcı - düğün/etkinlik QR
-    // linkleri genelde böyle açılır) görsel kaynağı olarak güvenilir çalışmıyor.
-    // Base64/data URI yöntemi her ortamda çalışır; bu yüzden en "doğru" seçim bu.
-    // Dosya SADECE BİR KEZ okunuyor ve aynı veri her senaryoda yeniden kullanılıyor.
-    function handleFileSelect(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    // ============================================================
+    // FOTOĞRAF İŞLEME - createImageBitmap() TABANLI YENİ YÖNTEM
+    // ============================================================
+    // Önceki yöntem dosyayı (telefon fotoğrafları genelde 10-50MB) önce
+    // FileReader.readAsDataURL() ile devasa bir base64 metnine çeviriyordu.
+    // Bu adım özellikle Safari'de (iPhone varsayılan tarayıcısı) büyük
+    // dosyalarda bilinen bir güvenilirlik sorunu ve "dosya okunamadı"
+    // hatasının asıl kaynağıydı.
+    //
+    // Yeni yöntem: createImageBitmap(file) tarayıcının donanım hızlandırmalı
+    // görsel kod çözücüsünü kullanarak dosyayı DOĞRUDAN, hiçbir base64/metin
+    // dönüşümü yapmadan decode eder. Bu adım hem çok daha hızlı hem de büyük
+    // dosyalarda çökmez. { imageOrientation: 'from-image' } seçeneği telefon
+    // fotoğraflarının EXIF döndürme bilgisini otomatik uygular (yan yatmış
+    // fotoğraf sorunu da böylece ortadan kalkar).
+    //
+    // Görsel canvas'a çizilip küçültüldükten SONRA, sadece bu küçük/optimize
+    // edilmiş son görsel base64'e çevrilir (canvas.toDataURL). Böylece asla
+    // orijinal büyük dosya base64'e çevrilmez - sadece sonuçta ortaya çıkan
+    // birkaç yüz KB'lık JPEG.
+    //
+    // Önizleme için yine base64 (data URI) kullanılıyor, object URL (blob:)
+    // değil - çünkü blob URL'ler bazı uygulama-içi tarayıcılarda (Instagram,
+    // WhatsApp'ın kendi içinde açtığı tarayıcı - düğün/etkinlik QR linkleri
+    // genelde böyle açılır) görsel kaynağı olarak güvenilir çalışmıyor.
+    //
+    // createImageBitmap tarayıcı tarafından desteklenmiyorsa veya HEIC
+    // dışında bir sebeple başarısız olursa, en eski tarayıcılar için bile
+    // çalışan klasik FileReader+<img> yöntemi son çare (fallback) olarak
+    // devreye girer.
+    // ============================================================
 
-      originalFileName = file.name || ('fotograf_' + Date.now());
-      status.innerText = "Fotoğraf hazırlanıyor...";
-      status.style.color = "var(--text-light)";
-      uploadBtn.style.display = 'none';
+    function convertHeicWithTimeout(file) {
+      const conversion = Promise.resolve(
+        heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 })
+      ).then(result => Array.isArray(result) ? result[0] : result);
 
-      const reader = new FileReader();
-
-      reader.onerror = function() {
-        status.innerText = "Hata: Dosya okunamadı. Lütfen tekrar deneyin.";
-        status.style.color = "var(--error)";
-      };
-
-      reader.onload = function(e) {
-        const dataUrl = e.target.result;
-        const img = new Image();
-
-        img.onload = function() {
-          try {
-            processViaCanvas(img, file, dataUrl);
-          } catch (err) {
-            // Canvas işleme (nadir durumlarda bellek/renk profili sorunları) başarısız
-            // olursa kullanıcıyı engellemek yerine elimizdeki veriyi olduğu gibi gönderiyoruz.
-            useOriginalFile(file, dataUrl);
-          }
-        };
-
-        img.onerror = function() {
-          // Tarayıcı bu görsel formatını doğrudan çözemedi. Gerçekten HEIC/HEIF ise
-          // dönüştürmeyi deniyoruz; değilse hemen elimizdeki veriyi gönderiyoruz -
-          // boşuna "dönüştürülüyor" ekranında bekletmiyoruz.
-          if (isHeicFile(file) && typeof heic2any === 'function') {
-            convertHeicAndProcess(file, dataUrl);
-          } else {
-            useOriginalFile(file, dataUrl);
-          }
-        };
-
-        img.src = dataUrl;
-      };
-
-      reader.readAsDataURL(file);
-    }
-
-    function convertHeicAndProcess(file, originalDataUrl) {
-      status.innerText = "Fotoğraf formatı dönüştürülüyor, bu biraz sürebilir...";
-      status.style.color = "var(--text-light)";
-
-      const conversion = Promise.resolve(heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 }));
-      // Yüksek çözünürlüklü HEIC dosyalarının dönüştürülmesi eski telefonlarda gerçekten
-      // uzun sürebilir; çok kısa bir sınır koymak boşuna yedek moda düşmeye ("sahte" hata)
-      // neden olur. 20 saniye makul bir üst sınır - bu süreyi de geçerse arayüz asla
-      // sonsuza kadar beklemez, otomatik olarak elimizdeki orijinal veriyi gönderir.
-      const timeout = new Promise(function(_, reject) {
-        setTimeout(function() { reject(new Error('heic-conversion-timeout')); }, 20000);
+      // Yüksek çözünürlüklü HEIC dosyalarının dönüştürülmesi eski telefonlarda
+      // gerçekten uzun sürebilir; 20 saniyelik üst sınır bu süreyi de aşarsa
+      // arayüz sonsuza kadar beklemez, otomatik olarak diğer yönteme düşer.
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('heic-conversion-timeout')), 20000);
       });
 
-      Promise.race([conversion, timeout])
-        .then(function(result) {
-          const blob = Array.isArray(result) ? result[0] : result;
-          const convertedReader = new FileReader();
-
-          convertedReader.onload = function(ev) {
-            const convertedDataUrl = ev.target.result;
-            const convertedImg = new Image();
-
-            convertedImg.onload = function() {
-              try {
-                processViaCanvas(convertedImg, file, convertedDataUrl);
-              } catch (err) {
-                useOriginalFile(file, originalDataUrl);
-              }
-            };
-            convertedImg.onerror = function() { useOriginalFile(file, originalDataUrl); };
-            convertedImg.src = convertedDataUrl;
-          };
-
-          convertedReader.onerror = function() { useOriginalFile(file, originalDataUrl); };
-          convertedReader.readAsDataURL(blob);
-        })
-        .catch(function() {
-          // Dönüştürme başarısız olur ya da zaman aşımına uğrarsa, dosyayı tekrar
-          // okumaya gerek yok - ilk okumada elde ettiğimiz veriyi doğrudan kullanıyoruz.
-          useOriginalFile(file, originalDataUrl);
-        });
+      return Promise.race([conversion, timeout]);
     }
 
-    function processViaCanvas(img, file, previewDataUrl) {
-      uploadArea.style.display = 'none';
-      imagePreview.onerror = null;
-      imagePreview.style.display = 'block';
-      imagePreview.src = previewDataUrl;
-      previewContainer.style.display = 'block';
-      uploadBtn.style.display = 'block';
-      uploadBtn.disabled = true;
-      uploadBtn.innerHTML = '<span class="loader"></span> İşleniyor...';
+    // Dosyayı (ya da HEIC dönüştürmesinden çıkan blob'u) createImageBitmap ile
+    // decode eder. HEIC/HEIF ise ve tarayıcı bunu doğrudan decode edemiyorsa
+    // önce heic2any ile JPEG'e çevirir, sonra tekrar dener.
+    async function decodeToBitmap(file) {
+      try {
+        return await createImageBitmap(file, { imageOrientation: 'from-image' });
+      } catch (err) {
+        if (isHeicFile(file) && typeof heic2any === 'function') {
+          status.innerText = "Fotoğraf formatı dönüştürülüyor, bu biraz sürebilir...";
+          status.style.color = "var(--text-light)";
+          const converted = await convertHeicWithTimeout(file);
+          return await createImageBitmap(converted, { imageOrientation: 'from-image' });
+        }
+        throw err;
+      }
+    }
 
+    // ImageBitmap veya <img> (Image) nesnesini canvas'a çizip küçültür,
+    // önizlemeyi gösterir ve gönderime hazır base64 verisini üretir.
+    // Hem createImageBitmap() sonucu hem de eski Image nesnesiyle çalışır
+    // (ikisi de .width/.height ve drawImage ile uyumludur).
+    function drawBitmapAndFinish(bitmapLike, file) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      const MAX_WIDTH = 3000; const MAX_HEIGHT = 3000;
-      let width = img.width; let height = img.height;
+      const MAX_WIDTH = 3000;
+      const MAX_HEIGHT = 3000;
+      let width = bitmapLike.width;
+      let height = bitmapLike.height;
 
       if (width > height) {
         if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -428,8 +378,12 @@
         if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
       }
 
-      canvas.width = width; canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(bitmapLike, 0, 0, width, height);
+
+      // ImageBitmap'ler bellek tutar; işimiz bitince serbest bırakıyoruz.
+      if (typeof bitmapLike.close === 'function') bitmapLike.close();
 
       const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.9);
       if (!jpegDataUrl || jpegDataUrl.length < 100) {
@@ -440,31 +394,86 @@
       uploadMimeType = 'image/jpeg';
       originalFileName = (file.name || 'fotograf').replace(/\.[^/.]+$/, "") + ".jpeg";
 
-      status.innerText = ""; uploadBtn.disabled = false; uploadBtn.innerText = "Fotoğrafı Gönder";
-    }
-
-    function useOriginalFile(file, dataUrl) {
       uploadArea.style.display = 'none';
-      previewContainer.style.display = 'block';
-
-      // Önizlemeyi elimizdeki veriyle deniyoruz; tarayıcı bu formatı hiç
-      // gösteremiyorsa (nadir) görseli gizleyip metinle devam ediyoruz.
-      // Yükleme her durumda çalışır çünkü zaten elimizde geçerli base64 veri var.
-      imagePreview.onerror = function() {
-        imagePreview.style.display = 'none';
-      };
+      imagePreview.onerror = null;
       imagePreview.style.display = 'block';
-      imagePreview.src = dataUrl;
-
-      optimizedBase64 = dataUrl.split(',')[1];
-      uploadMimeType = guessMimeType(file);
-      originalFileName = file.name || ('fotograf_' + Date.now() + '.jpg');
+      imagePreview.src = jpegDataUrl;
+      previewContainer.style.display = 'block';
 
       uploadBtn.style.display = 'block';
       uploadBtn.disabled = false;
       uploadBtn.innerText = "Fotoğrafı Gönder";
-      status.innerText = "Fotoğraf gönderime hazır.";
+      status.innerText = "";
+    }
+
+    // Ana yol: createImageBitmap tabanlı hızlı ve güvenilir işleme.
+    async function processFile(file) {
+      const bitmap = await decodeToBitmap(file);
+      drawBitmapAndFinish(bitmap, file);
+    }
+
+    // Son çare (fallback): createImageBitmap hiç desteklenmiyorsa ya da
+    // beklenmedik bir sebeple başarısız olursa, klasik FileReader + <img>
+    // yöntemiyle tekrar dener. Bu yol da kendi içinde HEIC dönüştürmeyi
+    // dener, böylece hiçbir fotoğraf türü tamamen yükleme dışı kalmaz.
+    function legacyProcessFile(file) {
+      return new Promise((resolve, reject) => {
+        const attempt = (blobLike, allowHeicRetry) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('file-read-failed'));
+          reader.onload = (e) => {
+            const dataUrl = e.target.result;
+            const img = new Image();
+            img.onload = () => {
+              try { drawBitmapAndFinish(img, file); resolve(); }
+              catch (err) { reject(err); }
+            };
+            img.onerror = () => {
+              if (allowHeicRetry && isHeicFile(file) && typeof heic2any === 'function') {
+                status.innerText = "Fotoğraf formatı dönüştürülüyor, bu biraz sürebilir...";
+                status.style.color = "var(--text-light)";
+                convertHeicWithTimeout(file)
+                  .then(convertedBlob => attempt(convertedBlob, false))
+                  .catch(reject);
+              } else {
+                reject(new Error('image-decode-failed'));
+              }
+            };
+            img.src = dataUrl;
+          };
+          reader.readAsDataURL(blobLike);
+        };
+        attempt(file, true);
+      });
+    }
+
+    async function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      originalFileName = file.name || ('fotograf_' + Date.now());
+      status.innerText = "Fotoğraf hazırlanıyor...";
       status.style.color = "var(--text-light)";
+      uploadBtn.style.display = 'none';
+
+      try {
+        if (typeof createImageBitmap === 'function') {
+          await processFile(file);
+        } else {
+          await legacyProcessFile(file);
+        }
+      } catch (err) {
+        console.error('processFile failed, trying legacy fallback:', err);
+        try {
+          await legacyProcessFile(file);
+        } catch (err2) {
+          console.error('legacyProcessFile also failed:', err2);
+          status.innerText = "Hata: Fotoğraf işlenemedi. Lütfen başka bir fotoğraf deneyin.";
+          status.style.color = "var(--error)";
+          uploadArea.style.display = 'flex';
+          previewContainer.style.display = 'none';
+        }
+      }
     }
 
     function resetSelection() {
@@ -474,7 +483,6 @@
       uploadBtn.style.display = 'none'; uploadArea.style.display = 'flex';
       status.innerText = "";
     }
-
 
     function uploadFile() {
       if (!optimizedBase64 || !currentEventId) return;
