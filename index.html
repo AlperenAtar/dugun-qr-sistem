@@ -69,9 +69,7 @@
     }
 
     .app-card {
-      background: rgba(255, 255, 255, 0.5);
-      -webkit-backdrop-filter: blur(20px) saturate(150%);
-      backdrop-filter: blur(20px) saturate(150%);
+      background: rgba(255, 255, 255, 0.55);
       width: 100%;
       max-width: 420px;
       max-height: 100%;
@@ -120,6 +118,7 @@
       letter-spacing: 0.3px;
       margin-bottom: 6px;
       color: var(--text-dark);
+      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9), 0 2px 10px rgba(255, 255, 255, 0.7);
     }
     body[data-font-theme="romantic"] h1 {
       font-size: 42px;
@@ -146,6 +145,7 @@
       color: var(--text-light);
       margin-bottom: 30px;
       line-height: 1.55;
+      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9), 0 2px 10px rgba(255, 255, 255, 0.7);
     }
 
     input[type="file"] { display: none; }
@@ -204,6 +204,8 @@
     <p id="statusMsg"></p>
   </div>
 
+  <!-- iPhone HEIC/HEIF fotoğraflarını tarayıcıda önizlemek/küçültmek için (yalnızca gerektiğinde kullanılır) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
     const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
@@ -266,7 +268,7 @@
             }
 
             if (data.bgImage) {
-              document.getElementById('bgLayer').style.backgroundImage = `linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)), url('${data.bgImage}')`;
+              document.getElementById('bgLayer').style.backgroundImage = `url('${data.bgImage}')`;
             }
 
             applyInvitationStyle(data);
@@ -334,15 +336,55 @@
 
         img.onerror = function() {
           // Tarayıcı bu görsel formatını (ör. iPhone HEIC/HEIF fotoğrafları) doğrudan
-          // önizleyip sıkıştıramıyor olabilir. Bu bir hata değildir; dosyayı
-          // olduğu gibi, sıkıştırmadan gönderiyoruz.
-          useOriginalFile(file, dataUrl);
+          // önizleyip sıkıştıramıyor olabilir. Önce istemci tarafında (kullanıcının
+          // kendi tarayıcısında, hiçbir şey sunucuya gitmeden) JPEG'e çevirmeyi
+          // deniyoruz - böylece gerçek bir önizleme ve küçültme mümkün olur.
+          convertHeicAndProcess(file, dataUrl);
         };
 
         img.src = dataUrl;
       };
 
       reader.readAsDataURL(file);
+    }
+
+    function convertHeicAndProcess(file, originalDataUrl) {
+      if (typeof heic2any !== 'function') {
+        useOriginalFile(file, originalDataUrl);
+        return;
+      }
+
+      status.innerText = "Fotoğraf formatı dönüştürülüyor...";
+      status.style.color = "var(--text-light)";
+
+      heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 })
+        .then(function(result) {
+          const blob = Array.isArray(result) ? result[0] : result;
+          const convertedReader = new FileReader();
+
+          convertedReader.onload = function(ev) {
+            const convertedDataUrl = ev.target.result;
+            const convertedImg = new Image();
+
+            convertedImg.onload = function() {
+              try {
+                processViaCanvas(convertedImg, file);
+              } catch (err) {
+                useOriginalFile(file, convertedDataUrl);
+              }
+            };
+            convertedImg.onerror = function() { useOriginalFile(file, originalDataUrl); };
+            convertedImg.src = convertedDataUrl;
+          };
+
+          convertedReader.onerror = function() { useOriginalFile(file, originalDataUrl); };
+          convertedReader.readAsDataURL(blob);
+        })
+        .catch(function() {
+          // Dönüştürme başarısız olursa (kütüphane yüklenememiş, desteklenmeyen
+          // alt tür vb.) kullanıcıyı yine de engellemiyoruz - orijinal dosyayı gönderiyoruz.
+          useOriginalFile(file, originalDataUrl);
+        });
     }
 
     function processViaCanvas(img, file) {
