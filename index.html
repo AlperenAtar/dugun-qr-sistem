@@ -161,6 +161,11 @@
     
     .change-photo-btn { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.9); border: none; padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-dark); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
+    #heicPlaceholder { padding: 36px 20px; border-radius: 12px; background-color: rgba(248, 250, 252, 0.8); border: 1px solid #e5ddc8; text-align: center; }
+    .heic-icon { font-size: 40px; margin-bottom: 10px; }
+    .heic-filename { font-weight: 600; font-size: 14px; color: var(--text-dark); word-break: break-all; margin-bottom: 6px; }
+    .heic-note { font-size: 12px; color: var(--text-light); line-height: 1.4; }
+
     .btn-primary { width: 100%; padding: 16px; border: none; border-radius: 12px; background-color: var(--primary); color: white; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; transition: background 0.3s ease; display: none; }
     .btn-primary:active { background-color: var(--primary-dark); }
     .btn-primary:disabled { background-color: #cbd5e1; cursor: not-allowed; }
@@ -198,14 +203,17 @@
     <div id="previewContainer">
       <button class="change-photo-btn" onclick="resetSelection()">✕ Değiştir</button>
       <img id="imagePreview" alt="Önizleme" />
+      <div id="heicPlaceholder" style="display:none;">
+        <div class="heic-icon">📷</div>
+        <div class="heic-filename" id="heicFileName"></div>
+        <div class="heic-note">Bu formattaki fotoğraflar tarayıcıda önizlenemez, ancak orijinal kalitesiyle gönderilecektir.</div>
+      </div>
     </div>
 
     <button id="uploadBtn" class="btn-primary" onclick="uploadFile()">Fotoğrafı Gönder</button>
     <p id="statusMsg"></p>
   </div>
 
-  <!-- iPhone HEIC/HEIF fotoğraflarını tarayıcıda önizlemek/küçültmek için (yalnızca gerektiğinde, yedek yöntem olarak kullanılır) -->
-  <script defer src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
     const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
@@ -299,32 +307,34 @@
     // ============================================================
     // FOTOĞRAF İŞLEME - TEK VE BASİT AKIŞ
     // ============================================================
-    // Önceki sürümün hatası: dosya seçilir seçilmez ham (sıkıştırılmamış)
-    // fotoğrafın tamamı (telefon fotoğrafları genelde 10-50MB) base64 metnine
-    // çevriliyordu. Bu hem önizlemede tarayıcıyı zorluyor hem de bu devasa
-    // veriyi sunucuya göndermeye çalışırken zaman aşımı / boyut sınırı
-    // yüzünden "sunucu hatası"na yol açıyordu.
-    //
-    // Yeni akış tek ve basit:
-    //   1) Seçilen dosya hafif bir "object URL" ile <img> etiketine yüklenir
-    //      (bellekte dev bir metin oluşturmaz, tüm tarayıcılarda hızlı çalışır).
+    // JPEG/PNG/WEBP gibi tarayıcının doğrudan decode edebildiği formatlar:
+    //   1) Dosya hafif bir "object URL" ile <img> etiketine yüklenir (bellekte
+    //      dev bir metin oluşturmaz, tüm tarayıcılarda hızlı çalışır).
     //   2) Görsel yüklenir yüklenmez canvas'a çizilip küçültülür ve JPEG
     //      olarak sıkıştırılır (kalite kaybı gözle görülmeyecek kadar azdır).
     //   3) SADECE bu küçük/sıkıştırılmış sonuç base64'e çevrilip önizlemede
-    //      gösterilir ve gönderime hazırlanır. Orijinal büyük dosya asla
-    //      base64'e çevrilmez, asla sunucuya gönderilmez.
-    //   4) Tarayıcı formatı doğrudan açamazsa (ör. bazı Android tarayıcılarında
-    //      HEIC), otomatik olarak heic2any ile JPEG'e çevrilip aynı akış
-    //      tekrar denenir.
+    //      gösterilir ve gönderime hazırlanır.
     //
-    // Bu sayede önizleme her fotoğrafta çalışır ve gönderilen veri her zaman
-    // küçük, hızlı ve sunucunun kaldırabileceği boyuttadır.
+    // HEIC/HEIF (genelde iPhone fotoğrafları):
+    //   Tarayıcı içinde JavaScript ile HEIC->JPEG dönüştürme (heic2any/WASM)
+    //   denendiğinde iki ayrı sorun ortaya çıktı: yüksek çözünürlüklü
+    //   dosyalarda telefonlarda bellek yetersizliğinden işlem sonsuza kadar
+    //   "dönüştürülüyor" durumunda takılı kalıyor; masaüstünde ise dönüştürülmüş
+    //   görselin sunucuya gönderiminde beklenmeyen hatalara yol açıyordu.
+    //   Bu yüzden HEIC dosyaları için istemci tarafında HİÇBİR decode/dönüştürme
+    //   denemesi yapılmıyor: dosya olduğu gibi (orijinal, üstelik HEIC zaten
+    //   JPEG'den daha sıkı sıkıştırılmış olduğu için genelde birkaç MB) doğrudan
+    //   sunucuya gönderiliyor. Tarayıcıda görsel önizleme yerine basit bir
+    //   "dosya seçildi" kutusu gösteriliyor. Bu en az hata ihtimali olan,
+    //   en öngörülebilir yöntemdir.
     // ============================================================
 
     const MAX_DIMENSION = 2000;   // uzun kenar piksel sınırı - hız/kalite dengesi
     const JPEG_QUALITY = 0.85;    // sıkıştırma kalitesi
 
     let currentObjectUrl = null;
+    const heicPlaceholder = document.getElementById('heicPlaceholder');
+    const heicFileName = document.getElementById('heicFileName');
 
     function revokeCurrentUrl() {
       if (currentObjectUrl) {
@@ -341,7 +351,8 @@
     }
 
     // Görseli canvas'a çizip küçültür/sıkıştırır, base64'e çevirir ve
-    // önizleme + upload butonunu hazırlar.
+    // önizleme + upload butonunu hazırlar. (Yalnızca HEIC olmayan, tarayıcının
+    // doğrudan decode edebildiği formatlar için kullanılır.)
     function compressAndFinish(img, originalFile) {
       try {
         const canvas = document.createElement('canvas');
@@ -373,6 +384,7 @@
 
             uploadArea.style.display = 'none';
             previewContainer.style.display = 'block';
+            heicPlaceholder.style.display = 'none';
 
             revokeCurrentUrl();
             const previewUrl = URL.createObjectURL(blob);
@@ -394,31 +406,46 @@
       }
     }
 
-    // Dosyayı (ya da HEIC'ten dönüştürülmüş blob'u) hafif bir object URL ile
-    // <img> etiketine yükler. Başarılı olursa sıkıştırmaya geçer; tarayıcı
-    // formatı açamazsa (tipik olarak HEIC) heic2any ile bir kez JPEG'e
-    // çevirip tekrar dener.
-    function loadAndProcess(fileOrBlob, isHeicRetry) {
+    // HEIC/HEIF dosyaları: hiçbir decode/dönüştürme denenmez. Dosya sadece
+    // okunur (ham bayt okuma - her zaman çalışan, hafif bir işlem) ve
+    // olduğu gibi gönderime hazırlanır. Önizleme yerine basit bir bilgi
+    // kutusu gösterilir.
+    function handleHeicFile(file) {
+      const reader = new FileReader();
+      reader.onerror = () => showSelectError();
+      reader.onload = (e) => {
+        optimizedBase64 = e.target.result.split(',')[1];
+        uploadMimeType = file.type && file.type.indexOf('image/') === 0 ? file.type : 'image/heic';
+        originalFileName = file.name || ('fotograf_' + Date.now() + '.heic');
+
+        uploadArea.style.display = 'none';
+        previewContainer.style.display = 'block';
+
+        revokeCurrentUrl();
+        imagePreview.style.display = 'none';
+        imagePreview.src = '';
+        heicFileName.innerText = originalFileName;
+        heicPlaceholder.style.display = 'block';
+
+        uploadBtn.style.display = 'block';
+        uploadBtn.disabled = false;
+        uploadBtn.innerText = "Fotoğrafı Gönder";
+        status.innerText = "";
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Dosyayı hafif bir object URL ile <img> etiketine yükler. Başarılı
+    // olursa sıkıştırmaya geçer; tarayıcı formatı açamazsa hata gösterilir
+    // (HEIC zaten bu fonksiyona hiç girmez, ayrı ele alınır).
+    function loadAndProcess(file) {
       revokeCurrentUrl();
-      const url = URL.createObjectURL(fileOrBlob);
+      const url = URL.createObjectURL(file);
       currentObjectUrl = url;
 
       const img = new Image();
-      img.onload = () => compressAndFinish(img, fileOrBlob);
-      img.onerror = () => {
-        if (!isHeicRetry && isHeicFile(fileOrBlob) && typeof heic2any === 'function') {
-          status.innerText = "Fotoğraf formatı dönüştürülüyor, bu biraz sürebilir...";
-          status.style.color = "var(--text-light)";
-          Promise.resolve(heic2any({ blob: fileOrBlob, toType: "image/jpeg", quality: 0.85 }))
-            .then((result) => {
-              const convertedBlob = Array.isArray(result) ? result[0] : result;
-              loadAndProcess(convertedBlob, true);
-            })
-            .catch(() => showSelectError());
-        } else {
-          showSelectError();
-        }
-      };
+      img.onload = () => compressAndFinish(img, file);
+      img.onerror = () => showSelectError();
       img.src = url;
     }
 
@@ -431,13 +458,18 @@
       uploadBtn.style.display = 'none';
       previewContainer.style.display = 'none';
 
-      loadAndProcess(file, false);
+      if (isHeicFile(file)) {
+        handleHeicFile(file);
+      } else {
+        loadAndProcess(file);
+      }
     }
 
     function resetSelection() {
       fileInput.value = ""; optimizedBase64 = null; uploadMimeType = "image/jpeg";
       revokeCurrentUrl();
       imagePreview.onerror = null; imagePreview.style.display = 'block'; imagePreview.src = '';
+      heicPlaceholder.style.display = 'none';
       previewContainer.style.display = 'none';
       uploadBtn.style.display = 'none'; uploadArea.style.display = 'flex';
       status.innerText = "";
