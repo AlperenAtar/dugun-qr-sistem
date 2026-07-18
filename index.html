@@ -216,7 +216,7 @@
 
   <script>
     // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
-    const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
+    const scriptURL = "https://script.google.com/macros/s/AKfycbzsH2NLoezyeajfSDn3vnZrm3v0oiT2RxWohAWHK0JhOWiCrrD8uneW484oj3iNYCQIMg/exec";
     
     const urlParams = new URLSearchParams(window.location.search);
     const currentEventId = urlParams.get('etkinlik');
@@ -305,15 +305,24 @@
     }
 
     // ============================================================
-    // FOTOĞRAF İŞLEME - TEK VE BASİT AKIŞ
+    // FOTOĞRAF İŞLEME - KALİTE ODAKLI ADAPTİF SIKIŞTIRMA
     // ============================================================
     // JPEG/PNG/WEBP gibi tarayıcının doğrudan decode edebildiği formatlar:
-    //   1) Dosya hafif bir "object URL" ile <img> etiketine yüklenir (bellekte
-    //      dev bir metin oluşturmaz, tüm tarayıcılarda hızlı çalışır).
-    //   2) Görsel yüklenir yüklenmez canvas'a çizilip küçültülür ve JPEG
-    //      olarak sıkıştırılır (kalite kaybı gözle görülmeyecek kadar azdır).
-    //   3) SADECE bu küçük/sıkıştırılmış sonuç base64'e çevrilip önizlemede
-    //      gösterilir ve gönderime hazırlanır.
+    //   1) Dosya hafif bir "object URL" ile <img> etiketine yüklenir.
+    //   2) Görsel canvas'a çizilir. Boyut sadece MAX_DIMENSION'ı aşıyorsa
+    //      küçültülür (zaten küçük fotoğraflar hiç küçültülmez, çözünürlük
+    //      gereksiz yere kaybedilmez).
+    //   3) JPEG kalitesi YÜKSEK bir değerden (0.92) başlar. Elde edilen
+    //      dosya boyutu hedeflenen üst sınırı (TARGET_MAX_BYTES) aşarsa,
+    //      kalite küçük adımlarla azaltılıp tekrar denenir; hedefin altına
+    //      inildiği an durulur. Böylece:
+    //        - Zaten küçük/orta boy fotoğraflar EN YÜKSEK kalitede kalır
+    //          (kalite hiç düşürülmeden gönderilir).
+    //        - Çok yüksek çözünürlüklü/ağır fotoğraflar ise sadece
+    //          gerektiği kadar sıkıştırılır, gözle fark edilmeyecek
+    //          minimum kalite kaybıyla makul boyuta iner.
+    //   4) SADECE bu sonuç base64'e çevrilip önizlemede gösterilir ve
+    //      gönderime hazırlanır.
     //
     // HEIC/HEIF (genelde iPhone fotoğrafları):
     //   Tarayıcı içinde JavaScript ile HEIC->JPEG dönüştürme (heic2any/WASM)
@@ -324,13 +333,15 @@
     //   Bu yüzden HEIC dosyaları için istemci tarafında HİÇBİR decode/dönüştürme
     //   denemesi yapılmıyor: dosya olduğu gibi (orijinal, üstelik HEIC zaten
     //   JPEG'den daha sıkı sıkıştırılmış olduğu için genelde birkaç MB) doğrudan
-    //   sunucuya gönderiliyor. Tarayıcıda görsel önizleme yerine basit bir
-    //   "dosya seçildi" kutusu gösteriliyor. Bu en az hata ihtimali olan,
-    //   en öngörülebilir yöntemdir.
+    //   sunucuya gönderiliyor. Bu hem en yüksek kaliteyi korur hem de en az
+    //   hata ihtimali olan, en öngörülebilir yöntemdir.
     // ============================================================
 
-    const MAX_DIMENSION = 2000;   // uzun kenar piksel sınırı - hız/kalite dengesi
-    const JPEG_QUALITY = 0.85;    // sıkıştırma kalitesi
+    const MAX_DIMENSION = 3000;          // uzun kenar piksel sınırı - kalite/boyut dengesi
+    const INITIAL_QUALITY = 0.92;        // başlangıç JPEG kalitesi (yüksek kalite hedefi)
+    const MIN_QUALITY = 0.6;             // kalite bu değerin altına asla indirilmez
+    const QUALITY_STEP = 0.07;           // her denemede kalite ne kadar azaltılsın
+    const TARGET_MAX_BYTES = 4 * 1024 * 1024; // 4MB - bu sınırın altına inince sıkıştırma durur
 
     let currentObjectUrl = null;
     const heicPlaceholder = document.getElementById('heicPlaceholder');
@@ -344,15 +355,35 @@
     }
 
     function showSelectError() {
-      status.innerText = "Hata: Fotoğraf işlenemedi. Lütfen başka bir fotoğraf deneyin.";
+      status.innerText = "Fotoğraf işlenemedi. Lütfen başka bir fotoğraf deneyin.";
       status.style.color = "var(--error)";
       uploadArea.style.display = 'flex';
       previewContainer.style.display = 'none';
     }
 
-    // Görseli canvas'a çizip küçültür/sıkıştırır, base64'e çevirir ve
-    // önizleme + upload butonunu hazırlar. (Yalnızca HEIC olmayan, tarayıcının
-    // doğrudan decode edebildiği formatlar için kullanılır.)
+    // Verilen kalite değeriyle canvas'ı JPEG'e çevirir. Sonuç hedef boyutu
+    // aşıyorsa ve kalite hâlâ minimumun üzerindeyse, kaliteyi biraz daha
+    // düşürüp tekrar dener. En iyi/yüksek kalitede kalıp yalnızca gerektiği
+    // kadar sıkıştırma yapmak için bu adım adım (iteratif) yaklaşım kullanılır.
+    function compressWithAdaptiveQuality(canvas, quality, onDone) {
+      canvas.toBlob((blob) => {
+        if (!blob) { onDone(null); return; }
+
+        const stillTooBig = blob.size > TARGET_MAX_BYTES;
+        const canReduceMore = quality > MIN_QUALITY;
+
+        if (stillTooBig && canReduceMore) {
+          const nextQuality = Math.max(MIN_QUALITY, quality - QUALITY_STEP);
+          compressWithAdaptiveQuality(canvas, nextQuality, onDone);
+        } else {
+          onDone(blob);
+        }
+      }, 'image/jpeg', quality);
+    }
+
+    // Görseli canvas'a çizip adaptif kalite ile sıkıştırır, base64'e çevirir
+    // ve önizleme + upload butonunu hazırlar. (Yalnızca HEIC olmayan,
+    // tarayıcının doğrudan decode edebildiği formatlar için kullanılır.)
     function compressAndFinish(img, originalFile) {
       try {
         const canvas = document.createElement('canvas');
@@ -362,6 +393,8 @@
 
         if (!width || !height) { showSelectError(); return; }
 
+        // Sadece MAX_DIMENSION'ı aşan fotoğraflar küçültülür; zaten küçük
+        // fotoğrafların çözünürlüğü asla düşürülmez.
         if (width > height) {
           if (width > MAX_DIMENSION) { height = Math.round(height * MAX_DIMENSION / width); width = MAX_DIMENSION; }
         } else {
@@ -370,9 +403,12 @@
 
         canvas.width = width;
         canvas.height = height;
+        // Yüksek kaliteli yeniden örnekleme (resize) için tarayıcıya ipucu ver.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        canvas.toBlob((blob) => {
+        compressWithAdaptiveQuality(canvas, INITIAL_QUALITY, (blob) => {
           if (!blob) { showSelectError(); return; }
 
           const reader = new FileReader();
@@ -399,9 +435,8 @@
             status.innerText = "";
           };
           reader.readAsDataURL(blob);
-        }, 'image/jpeg', JPEG_QUALITY);
+        });
       } catch (err) {
-        console.error('Sıkıştırma hatası:', err);
         showSelectError();
       }
     }
@@ -496,7 +531,7 @@
           status.style.color = "var(--success)";
           setTimeout(() => { resetSelection(); status.innerText = "Başka bir fotoğraf daha yükleyebilirsiniz."; status.style.color = "var(--text-light)"; }, 3000);
         } else {
-          status.innerText = "Hata oluştu: " + data.message;
+          status.innerText = "Fotoğraf gönderilemedi. Lütfen tekrar deneyin.";
           status.style.color = "var(--error)";
           uploadBtn.disabled = false; uploadBtn.innerText = "Tekrar Dene";
         }
