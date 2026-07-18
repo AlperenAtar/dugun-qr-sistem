@@ -35,8 +35,6 @@
       border: 1px solid #ddd;
       border-radius: 6px;
       box-sizing: border-box;
-      /* 16px altı font-size, iOS Safari'de input'a dokununca sayfanın
-         otomatik olarak yakınlaşmasına (zoom) neden olur. */
       font-size: 16px;
       min-height: 46px;
       -webkit-appearance: none;
@@ -257,9 +255,6 @@
     }
 
     // Google Drive resim linklerini ham (raw) resim verisi çekecek formata dönüştürür.
-    // "uc?export=view" formatı tarayıcılarda ve <img>/background-image olarak sık sık
-    // yüklenemiyordu (Drive'ın virüs taraması arasayfası, yönlendirme/referrer kısıtlamaları vb.).
-    // "thumbnail" uç noktası doğrudan görüntü verisi döndürdüğü için çok daha güvenilir çalışıyor.
     function formatImageUrl(input) {
       if (!input) return "";
       let id = null;
@@ -309,7 +304,7 @@
         subtitle: document.getElementById('subtitle').value,
         color: document.getElementById('themeColor').value,
         icon: document.getElementById('eventIcon').value,
-        bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()), // Dönüştürücü uygulandı
+        bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()),
         fontTheme: document.getElementById('fontTheme').value,
         frameStyle: document.getElementById('frameStyle').value,
         ornament: document.getElementById('ornament').value
