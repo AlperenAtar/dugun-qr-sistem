@@ -2,27 +2,88 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Güvenli Yönetim Paneli</title>
   <style>
-    body { font-family: system-ui; background: #f4f4f5; display: flex; justify-content: center; padding: 20px; margin: 0; box-sizing: border-box;}
-    .card { background: white; padding: 30px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); box-sizing: border-box;}
-    input, select, button { width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px;}
-    button { background: #18181b; color: white; cursor: pointer; font-weight: bold; border: none; transition: background 0.3s; }
+    * { -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f4f4f5;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      margin: 0;
+      box-sizing: border-box;
+      min-height: 100vh;
+      padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+      padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    }
+    .card {
+      background: white;
+      padding: 28px 22px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      box-sizing: border-box;
+    }
+    input, select, button {
+      width: 100%;
+      margin-bottom: 15px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      box-sizing: border-box;
+      /* 16px altı font-size, iOS Safari'de input'a dokununca sayfanın
+         otomatik olarak yakınlaşmasına (zoom) neden olur. */
+      font-size: 16px;
+      min-height: 46px;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input[type="color"] { padding: 4px; -webkit-appearance: auto; appearance: auto; }
+    button {
+      background: #18181b;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+      border: none;
+      transition: background 0.3s;
+      font-size: 15px;
+    }
     button:hover { background: #3f3f46; }
-    label { font-size: 13px; font-weight: 600; color: #555; display: block; margin-bottom: 5px; }
+    button:active { background: #3f3f46; }
+    label { font-size: 13px; font-weight: 600; color: #555; display: block; margin-bottom: 6px; }
     
     #adminSection { display: none; }
     #loginSection { display: block; }
     
-    #loginError, #result { margin-top: 15px; font-size: 14px; padding: 15px; border-radius: 6px; display: none; text-align: center; }
-    #result img { margin-top: 15px; border-radius: 8px; border: 1px solid #ddd; padding: 5px; background: white; max-width: 100%; }
+    #loginError, #result { margin-top: 15px; font-size: 14px; padding: 15px; border-radius: 6px; display: none; text-align: center; word-break: break-word; }
+    #result img { margin-top: 15px; border-radius: 8px; border: 1px solid #ddd; padding: 5px; background: white; max-width: 100%; height: auto; width: 200px; }
     
     .logout-btn { background: #ef4444; margin-top: 20px; }
     .logout-btn:hover { background: #dc2626; }
+    .logout-btn:active { background: #dc2626; }
     
-    .download-btn { background: #2563eb; color: white; margin-top: 10px; padding: 8px 15px; font-size: 13px; border-radius: 6px; display: inline-block; width: auto;}
+    .download-btn {
+      background: #2563eb;
+      color: white;
+      margin-top: 10px;
+      padding: 10px 15px;
+      font-size: 13px;
+      border-radius: 6px;
+      display: inline-block;
+      width: auto;
+      min-height: auto;
+    }
     .download-btn:hover { background: #1d4ed8; }
+    .download-btn:active { background: #1d4ed8; }
+
+    @media (max-width: 380px) {
+      .card { padding: 22px 16px; }
+      h2 { font-size: 19px; }
+    }
     .helper-text { display: block; margin-top: -10px; margin-bottom: 15px; font-size: 11px; color: #6b7280; }
     .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin: 20px 0 10px; border-top: 1px solid #eee; padding-top: 15px; }
   </style>
@@ -73,7 +134,7 @@
     <span class="helper-text">Google Drive linki verirken dosyayı "Bağlantıya sahip olan herkes görüntüleyebilir" olarak paylaştığınızdan emin olun. Drive dışı bir görsel linki (ör. Unsplash) de kullanabilirsiniz.</span>
 
     <label>Tema Rengi</label>
-    <input type="color" id="themeColor" value="#cda434" style="height:40px; cursor:pointer; padding:0;">
+    <input type="color" id="themeColor" value="#cda434" style="cursor:pointer; padding:0;">
 
     <div class="section-title">Davetiye Görünümü</div>
 
@@ -106,6 +167,7 @@
   </div>
 
   <script>
+    // KENDİ WEB APP URL'Nİ BURAYA YAPIŞTIR
     const scriptURL = "https://script.google.com/macros/s/AKfycbzJYCzTl4IYRz3PbHyWMIy-IgCuvS43CzlHLwlngdCALkcraYsP3RVqcsh2KSBntQA9pA/exec";
 
     window.onload = () => {
@@ -274,7 +336,7 @@
             Misafir Linki:<br>
             <a href="${guestUrl}" target="_blank" style="word-break: break-all; color:#2563eb;">${guestUrl}</a><br><br>
             <b>Masa QR Kodu:</b><br>
-            <img src="${qrCodeUrl}" alt="QR Kod" style="width: 200px; height: 200px;"><br>
+            <img src="${qrCodeUrl}" alt="QR Kod" style="width: 100%; max-width: 200px; height: auto;"><br>
             <button id="downloadQrBtn" class="download-btn" onclick="downloadQR('${qrCodeUrl}', '${eventId}')">⬇️ QR Kodu İndir</button>
           `;
         } else {
