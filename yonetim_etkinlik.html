@@ -40,39 +40,27 @@
       -webkit-appearance: none;
       appearance: none;
     }
+    input[type="color"] { padding: 4px; -webkit-appearance: auto; appearance: auto; }
 
-    .color-swatches {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      margin-bottom: 14px;
-      max-width: 280px;
-    }
+    .color-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
     .color-swatch {
-      width: 100%;
-      aspect-ratio: 1 / 1;
-      border-radius: 50%;
-      border: 2px solid transparent;
-      cursor: pointer;
-      padding: 0;
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 2px solid transparent; cursor: pointer; padding: 0;
       box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      flex-shrink: 0;
     }
     .color-swatch.selected {
       border-color: #18181b;
       box-shadow: 0 0 0 2px #fff inset, 0 1px 3px rgba(0,0,0,0.3);
     }
     .color-custom-row {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 10px; margin-bottom: 15px;
     }
-    .color-preview-dot {
-      width: 40px; height: 40px; border-radius: 50%;
-      border: 1px solid #ddd; flex-shrink: 0;
-      background: #cda434;
+    .color-custom-row input[type="color"] {
+      width: 40px; height: 40px; min-height: auto; margin-bottom: 0;
+      border-radius: 8px; cursor: pointer; flex-shrink: 0;
     }
-    .color-custom-row input#themeColor {
-      flex: 1; margin-bottom: 0; font-family: monospace;
-      text-transform: uppercase; letter-spacing: 0.5px;
-    }
+    #themeColorHex { font-size: 13px; font-weight: 600; color: #444; }
     button {
       background: #18181b;
       color: white;
@@ -159,10 +147,10 @@
     <label>Tema Rengi</label>
     <div class="color-swatches" id="colorSwatches"></div>
     <div class="color-custom-row">
-      <span class="color-preview-dot" id="colorPreviewDot"></span>
-      <input type="text" id="themeColor" value="#CDA434" maxlength="7" autocapitalize="characters" autocomplete="off" placeholder="#RRGGBB">
+      <input type="color" id="themeColor" value="#cda434">
+      <span id="themeColorHex">#CDA434</span>
+      <span style="font-size:11px; color:#9ca3af;">(özel renk için tıklayın)</span>
     </div>
-    <span class="helper-text" style="margin-top:-10px;">Yukarıdan bir renk seçin veya HEX kodunu elle girin (ör. #CDA434)</span>
 
     <div class="section-title">Davetiye Görünümü</div>
 
@@ -208,21 +196,13 @@
     };
 
     // ------------------------------------------------------------------
-    // TEMA RENGİ - HAZIR PALET + HEX GİRİŞİ
+    // TEMA RENGİ - HAZIR PALET
     // Android'de native <input type="color"> seçici çok kötü bir deneyim
-    // sunduğu için tamamen kaldırıldı. Bunun yerine: hızlı seçim için
-    // tıklanabilir bir renk paleti + isteğe bağlı serbest HEX kod girişi
-    // kullanılıyor. Böylece hiçbir platformda sistem rengi seçici açılmıyor.
+    // sunduğu için, hızlı seçim için tıklanabilir bir renk paleti eklendi.
+    // Native picker hâlâ mevcut ("özel renk" için), sadece varsayılan
+    // etkileşim artık paletten tek dokunuşla oluyor.
     // ------------------------------------------------------------------
-    const PRESET_COLORS = ['#CDA434', '#C2839F', '#7C9885', '#4A6FA5', '#8A6BBF', '#2D3748', '#D97757', '#3F7D6B'];
-    const DEFAULT_COLOR = '#CDA434';
-
-    function normalizeHex(raw) {
-      if (!raw) return null;
-      let v = raw.trim();
-      if (v[0] !== '#') v = '#' + v;
-      return /^#[0-9A-Fa-f]{6}$/.test(v) ? v.toUpperCase() : null;
-    }
+    const PRESET_COLORS = ['#cda434', '#c2839f', '#7c9885', '#4a6fa5', '#8a6bbf', '#2d3748'];
 
     function renderColorSwatches() {
       const wrap = document.getElementById('colorSwatches');
@@ -237,33 +217,15 @@
       updateThemeColorDisplay();
     }
 
-    // Yazarken anlık önizleme günceller (geçersizse önizlemeyi değiştirmez,
-    // kullanıcı hâlâ yazıyor olabilir).
     function updateThemeColorDisplay() {
-      const input = document.getElementById('themeColor');
-      const dot = document.getElementById('colorPreviewDot');
-      const normalized = normalizeHex(input.value);
-
-      if (normalized) {
-        dot.style.background = normalized;
-      }
-
+      const val = document.getElementById('themeColor').value;
+      document.getElementById('themeColorHex').textContent = val.toUpperCase();
       document.querySelectorAll('.color-swatch').forEach(btn => {
-        btn.classList.toggle('selected', !!normalized && btn.dataset.color.toUpperCase() === normalized);
+        btn.classList.toggle('selected', btn.dataset.color.toLowerCase() === val.toLowerCase());
       });
     }
 
-    // Kutudan çıkınca (blur) geçersiz/eksik bir HEX kodu varsayılana döner,
-    // böylece kaydetme sırasında her zaman geçerli bir renk garanti edilir.
-    function finalizeThemeColor() {
-      const input = document.getElementById('themeColor');
-      const normalized = normalizeHex(input.value);
-      input.value = normalized || DEFAULT_COLOR;
-      updateThemeColorDisplay();
-    }
-
     document.getElementById('themeColor').addEventListener('input', updateThemeColorDisplay);
-    document.getElementById('themeColor').addEventListener('blur', finalizeThemeColor);
     renderColorSwatches();
 
     function hideError() { document.getElementById('loginError').style.display = 'none'; }
@@ -460,7 +422,7 @@
         folderId: extractedFolderId,
         title: document.getElementById('title').value,
         subtitle: document.getElementById('subtitle').value,
-        color: normalizeHex(document.getElementById('themeColor').value) || DEFAULT_COLOR,
+        color: document.getElementById('themeColor').value,
         bgImage: formatImageUrl(document.getElementById('bgImage').value.trim()),
         fontTheme: document.getElementById('fontTheme').value,
         frameStyle: document.getElementById('frameStyle').value,
