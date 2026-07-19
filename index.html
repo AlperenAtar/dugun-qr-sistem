@@ -280,7 +280,15 @@
     let originalFileName = "";
     let uploadMimeType = "image/jpeg";
 
-  
+    // ------------------------------------------------------------------
+    // CİHAZ KİMLİĞİ (saatlik yükleme sınırı için)
+    // Tarayıcıda kalıcı, rastgele ve anonim bir kimlik üretilir ve
+    // localStorage'da saklanır. Kişisel bilgi İÇERMEZ, sadece "bu cihazdan
+    // aynı etkinliğe kaç fotoğraf yüklendi" sayacını tutmak için kullanılır.
+    // localStorage kullanılamıyorsa (gizli sekme vb.) geçici bir kimlik
+    // üretilir; bu durumda sınır o oturum için ayrı sayılır, uygulamanın
+    // çalışmasını etkilemez.
+    // ------------------------------------------------------------------
     function getOrCreateDeviceId() {
       try {
         let id = localStorage.getItem('guestDeviceId');
@@ -304,13 +312,55 @@
       return name.endsWith('.heic') || name.endsWith('.heif');
     }
 
+    // ============================================================
+    // FOTOĞRAF İŞLEME - KALİTE ODAKLI ADAPTİF SIKIŞTIRMA
+    // ============================================================
+    // JPEG/PNG/WEBP gibi tarayıcının doğrudan decode edebildiği formatlar:
+    //   1) Dosya hafif bir "object URL" ile <img> etiketine yüklenir.
+    //   2) Görsel canvas'a çizilir. Boyut sadece MAX_DIMENSION'ı aşıyorsa
+    //      küçültülür (zaten küçük fotoğraflar hiç küçültülmez, çözünürlük
+    //      gereksiz yere kaybedilmez).
+    //   3) JPEG kalitesi YÜKSEK bir değerden (0.92) başlar. Elde edilen
+    //      dosya boyutu hedeflenen üst sınırı (TARGET_MAX_BYTES) aşarsa,
+    //      kalite küçük adımlarla azaltılıp tekrar denenir; hedefin altına
+    //      inildiği an durulur. Böylece:
+    //        - Zaten küçük/orta boy fotoğraflar EN YÜKSEK kalitede kalır
+    //          (kalite hiç düşürülmeden gönderilir).
+    //        - Çok yüksek çözünürlüklü/ağır fotoğraflar ise sadece
+    //          gerektiği kadar sıkıştırılır, gözle fark edilmeyecek
+    //          minimum kalite kaybıyla makul boyuta iner.
+    //   4) SADECE bu sonuç base64'e çevrilip önizlemede gösterilir ve
+    //      gönderime hazırlanır.
+    //
+    // HEIC/HEIF (genelde iPhone fotoğrafları):
+    //   Daha önce JavaScript kütüphaneleriyle (heic2any/WASM) dönüştürme
+    //   denendiğinde bellek yetersizliğinden takılma ve dönüştürülen görselin
+    //   gönderiminde beklenmeyen hatalar yaşanmıştı. Bunun yerine artık HİÇBİR
+    //   dış kütüphane kullanılmıyor: HEIC dosyası da önce normal <img>/canvas
+    //   yoluyla (loadAndProcess) açılmaya çalışılıyor.
+    //     - iPhone'daki TÜM tarayıcılarda (Safari, iOS Chrome/Firefox - Apple
+    //       kuralı gereği hepsi WebKit motorunu kullanır) ve macOS Safari'de
+    //       işletim sistemi HEIC'i native olarak açabildiği için bu adım
+    //       BAŞARILI olur: fotoğraf diğer formatlar gibi adaptif kalite ile
+    //       sıkıştırılıp JPEG'e çevrilir - kalite korunur, boyut ciddi
+    //       oranda küçülür.
+    //     - Native HEIC desteği olmayan platformlarda (Android Chrome,
+    //       Windows/Linux masaüstü) bu deneme başarısız olur ve otomatik
+    //       olarak handleHeicFile() güvenli yoluna düşülür: dosya hiç
+    //       dönüştürülmeden, olduğu gibi gönderilir. Böylece hiçbir
+    //       platformda çökme/takılma riski oluşmaz.
+    // ============================================================
+
     const MAX_DIMENSION = 3000;          // uzun kenar piksel sınırı - kalite/boyut dengesi
     const INITIAL_QUALITY = 0.92;        // başlangıç JPEG kalitesi (yüksek kalite hedefi)
     const MIN_QUALITY = 0.6;             // kalite bu değerin altına asla indirilmez
     const QUALITY_STEP = 0.07;           // her denemede kalite ne kadar azaltılsın
     const TARGET_MAX_BYTES = 4 * 1024 * 1024; // 4MB - bu sınırın altına inince sıkıştırma durur
 
-    
+    // HEIC native açılamadığında (Android/masaüstü) son çare olarak denenen
+    // WASM tabanlı dönüştürme için güvenlik sınırları. Bu sınırların amacı:
+    // dönüştürme asla süresiz takılamasın, asla mevcut güvenli davranıştan
+    // (dosyayı olduğu gibi gönderme) daha kötü bir sonuç üretemesin.
     const HEIC_CONVERT_MAX_BYTES = 30 * 1024 * 1024; // 30MB üstü dosyalarda deneme atlanır
     const HEIC_CONVERT_TIMEOUT_MS = 20000;           // 20 sn içinde bitmezse iptal edilir
 
@@ -355,8 +405,6 @@
     // Görseli canvas'a çizip adaptif kalite ile sıkıştırır, base64'e çevirir
     // ve önizleme + upload butonunu hazırlar. (Yalnızca HEIC olmayan,
     // tarayıcının doğrudan decode edebildiği formatlar için kullanılır.)
-    // "img" parametresi hem bir <img> elementi hem de bir ImageBitmap
-    // olabilir (ikisi de .width/.height taşır ve drawImage ile uyumludur).
     function compressAndFinish(img, originalFile) {
       try {
         const canvas = document.createElement('canvas');
@@ -380,10 +428,6 @@
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-
-        // ImageBitmap ise belleği hemen serbest bırak (img elementinde bu
-        // metot yok, bu yüzden varlığı kontrol edilir).
-        if (typeof img.close === 'function') img.close();
 
         compressWithAdaptiveQuality(canvas, INITIAL_QUALITY, (blob) => {
           if (!blob) { showSelectError(); return; }
@@ -418,7 +462,10 @@
       }
     }
 
- 
+    // HEIC/HEIF dosyaları: hiçbir decode/dönüştürme denenmez. Dosya sadece
+    // okunur (ham bayt okuma - her zaman çalışan, hafif bir işlem) ve
+    // olduğu gibi gönderime hazırlanır. Önizleme yerine basit bir bilgi
+    // kutusu gösterilir.
     function handleHeicFile(file) {
       const reader = new FileReader();
       reader.onerror = () => showSelectError();
@@ -444,62 +491,23 @@
       reader.readAsDataURL(file);
     }
 
-   
-    function getImageDimensionsFast(file) {
-      return new Promise((resolve) => {
-        const HEADER_BYTES = 65536; // JPEG SOF genelde ilk birkaç KB içinde bulunur
-        const slice = file.slice(0, HEADER_BYTES);
-        const reader = new FileReader();
-        reader.onerror = () => resolve(null);
-        reader.onload = (e) => {
-          try {
-            const buf = new DataView(e.target.result);
-            if (buf.byteLength < 24) { resolve(null); return; }
-
-            // PNG imzası + IHDR chunk (boyut her zaman sabit ofsette)
-            if (buf.getUint32(0) === 0x89504E47 && buf.getUint32(4) === 0x0D0A1A0A) {
-              const width = buf.getUint32(16, false);
-              const height = buf.getUint32(20, false);
-              resolve(width > 0 && height > 0 ? { width, height } : null);
-              return;
-            }
-
-            
-            if (buf.getUint16(0, false) === 0xFFD8) {
-              let offset = 2;
-              while (offset + 9 < buf.byteLength) {
-                if (buf.getUint8(offset) !== 0xFF) { offset++; continue; }
-                const marker = buf.getUint8(offset + 1);
-                const isSOF = marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
-                if (isSOF) {
-                  const height = buf.getUint16(offset + 5, false);
-                  const width = buf.getUint16(offset + 7, false);
-                  resolve(width > 0 && height > 0 ? { width, height } : null);
-                  return;
-                }
-                // Bağımsız (parametresiz) marker'lar - segment uzunluğu yok, 2 bayt ilerle.
-                if (marker === 0xD8 || marker === 0xD9 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
-                  offset += 2;
-                  continue;
-                }
-                const segLen = buf.getUint16(offset + 2, false);
-                if (!segLen || segLen < 2) { resolve(null); return; }
-                offset += 2 + segLen;
-              }
-              resolve(null); // Okunan pencere içinde SOF bulunamadı
-              return;
-            }
-
-            resolve(null); // Tanınmayan format (ör. WEBP) - eski yönteme düşülür
-          } catch (err) {
-            resolve(null);
-          }
-        };
-        reader.readAsArrayBuffer(slice);
-      });
-    }
-
-    function loadAndProcessLegacyDecode(file) {
+    // Dosyayı hafif bir object URL ile <img> etiketine yükler. Başarılı
+    // olursa normal adaptif kalite sıkıştırmasına geçer.
+    //
+    // ÖNEMLİ: Bu fonksiyon artık HEIC/HEIF dosyaları için de İLK denenen
+    // yoldur. iPhone'daki TÜM tarayıcılar (Safari, iOS Chrome/Firefox -
+    // Apple kuralı gereği hepsi WebKit motorunu kullanır) ve macOS Safari,
+    // HEIC'i işletim sisteminin kendi kod çözücüsüyle native olarak
+    // <img>/canvas üzerinden açabilir - hiçbir ek kütüphaneye gerek kalmadan.
+    // Bu sayede iPhone'dan yüklenen HEIC fotoğraflar da diğer formatlar gibi
+    // sıkıştırılıp JPEG'e çevrilir: kalite korunur, boyut ciddi oranda düşer.
+    //
+    // HEIC'i native açamayan platformlarda (Android Chrome, Windows/Linux
+    // masaüstü tarayıcılar) img.onerror tetiklenir ve handleNativeDecodeFailure
+    // devreye girip WASM tabanlı bir dönüştürme denemesi yapar; bu da
+    // başarısız olursa (bkz. fonksiyon içi yorum) önceki güvenli yönteme
+    // (dönüştürmeden, olduğu gibi) düşülür.
+    function loadAndProcess(file) {
       revokeCurrentUrl();
       const url = URL.createObjectURL(file);
       currentObjectUrl = url;
@@ -510,52 +518,27 @@
       img.src = url;
     }
 
-    
-    async function loadAndProcess(file) {
-      // HEIC/HEIF her zaman kendi mevcut akışından geçer (native decode
-      // denemesi + WASM fallback) - burada dokunulmaz.
-      if (typeof createImageBitmap !== 'function' || isHeicFile(file)) {
-        loadAndProcessLegacyDecode(file);
-        return;
-      }
-
-      try {
-        const dims = await getImageDimensionsFast(file);
-        if (!dims) {
-          
-          loadAndProcessLegacyDecode(file);
-          return;
-        }
-
-        let targetWidth = dims.width;
-        let targetHeight = dims.height;
-        if (targetWidth > targetHeight) {
-          if (targetWidth > MAX_DIMENSION) {
-            targetHeight = Math.round(targetHeight * MAX_DIMENSION / targetWidth);
-            targetWidth = MAX_DIMENSION;
-          }
-        } else {
-          if (targetHeight > MAX_DIMENSION) {
-            targetWidth = Math.round(targetWidth * MAX_DIMENSION / targetHeight);
-            targetHeight = MAX_DIMENSION;
-          }
-        }
-
-        
-        const bitmap = await createImageBitmap(file, {
-          resizeWidth: targetWidth,
-          resizeHeight: targetHeight,
-          resizeQuality: 'high',
-          imageOrientation: 'from-image'
-        });
-
-        compressAndFinish(bitmap, file);
-      } catch (err) {
-        console.error('Decode-time küçültme başarısız oldu, klasik yönteme geçiliyor:', err);
-        loadAndProcessLegacyDecode(file);
-      }
-    }
-
+    // ------------------------------------------------------------------
+    // ANDROID/MASAÜSTÜ İÇİN SON ÇARE: WASM TABANLI HEIC DÖNÜŞTÜRME
+    // ------------------------------------------------------------------
+    // Tarayıcı HEIC'i native açamadıysa (isHeicFile true), tek seçenek
+    // "olduğu gibi gönder" değil artık: heic2any kütüphanesi (libheif'in
+    // WASM derlemesi) CDN'den TEMBEL olarak yükleyip JPEG'e çevirmeyi
+    // deniyoruz. Bu, sayfa yüklenirken HİÇBİR ek ağırlık getirmez -
+    // sadece gerçekten bir HEIC dosyası native açılamadığında indirilir.
+    //
+    // GÜVENLİK KATMANLARI (önceki denemelerdeki "süresiz takılma" sorununu
+    // tamamen ortadan kaldırmak için):
+    //   1) HEIC_CONVERT_MAX_BYTES üstü dosyalarda deneme hiç yapılmaz.
+    //   2) HEIC_CONVERT_TIMEOUT_MS içinde bitmezse Promise.race ile iptal
+    //      edilir (kütüphane arka planda çalışmaya devam etse bile biz
+    //      beklemeyi bırakıp fallback'e geçeriz).
+    //   3) Kütüphane yüklenemezse, dönüştürme hata verirse veya zaman
+    //      aşımına uğrarsa -> .catch() bloğu KOŞULSUZ olarak
+    //      handleHeicFile(file) çağırır (mevcut güvenli, dönüştürmesiz yol).
+    // Sonuç: en kötü ihtimalde bugünkü davranışın birebir aynısı, asla
+    // daha kötüsü. En iyi ihtimalde ise dosya küçülüp kalite korunarak
+    // JPEG'e çevrilir.
     let heic2anyLoadPromise = null;
     function loadHeic2Any() {
       if (window.heic2any) return Promise.resolve(window.heic2any);
@@ -629,8 +612,9 @@
       uploadBtn.style.display = 'none';
       previewContainer.style.display = 'none';
 
-      // Mümkünse mobil-güvenli decode-time küçültme yolu denenir; HEIC dahil
-      // her durumda gerekirse önceki kanıtlanmış yönteme sorunsuzca düşülür.
+      // HEIC dahil tüm formatlar için önce native tarayıcı desteğiyle açmayı
+      // dener (bkz. loadAndProcess yorumu); yalnızca bu başarısız olursa
+      // HEIC'e özel güvenli fallback devreye girer.
       loadAndProcess(file);
     }
 
