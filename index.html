@@ -130,7 +130,7 @@
       font-style: italic;
       font-weight: 500;
       font-size: 16px;
-      color: #445066;
+      color: #000;
       margin-bottom: 30px;
       line-height: 1.55;
       text-shadow: 0 1px 3px rgba(255, 255, 255, 0.95), 0 2px 12px rgba(255, 255, 255, 0.85);
@@ -182,7 +182,6 @@
         <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5-7l-3 3.72L9 13l-3 4h14l-4-5z"/>
       </svg>
       <span>Galeriden Fotoğraf Seç</span>
-      <small>veya kamera ile yeni çek</small>
     </label>
     
     <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)" />
@@ -241,6 +240,30 @@
       }
     }
 
+    // ------------------------------------------------------------------
+    // COOLDOWN'UN SAYFA YENİLEMEYE KARŞI KALICI OLMASI
+    // 30 saniyelik bekleme süresi sadece bir JS değişkeninde tutulursa,
+    // kullanıcı sayfayı yenilediği anda sıfırlanır ve limit atlatılabilir.
+    // Bunu engellemek için bekleme süresinin BİTİŞ zamanı (timestamp)
+    // localStorage'a yazılır; sayfa her açıldığında bu değer kontrol edilir
+    // ve süre dolmamışsa geri sayım kaldığı yerden gösterilmeye devam eder.
+    // ------------------------------------------------------------------
+    function getCooldownKey() {
+      return 'uploadCooldownUntil_' + currentEventId;
+    }
+    function getStoredCooldownEnd() {
+      try {
+        const v = localStorage.getItem(getCooldownKey());
+        return v ? parseInt(v, 10) : 0;
+      } catch (e) { return 0; }
+    }
+    function setStoredCooldownEnd(endTime) {
+      try { localStorage.setItem(getCooldownKey(), String(endTime)); } catch (e) {}
+    }
+    function clearStoredCooldownEnd() {
+      try { localStorage.removeItem(getCooldownKey()); } catch (e) {}
+    }
+
     window.onload = () => {
       if (!currentEventId) {
         document.getElementById('eventTitle').innerText = "Hata";
@@ -264,7 +287,15 @@
 
             applyInvitationStyle(data);
 
-            uploadArea.style.display = 'flex';
+            // Sayfa yenilenmiş olabilir - hâlâ aktif bir bekleme süresi
+            // (cooldown) varsa fotoğraf seçim ekranını açmak yerine geri
+            // sayımı kaldığı yerden göster.
+            const storedEnd = getStoredCooldownEnd();
+            if (storedEnd && storedEnd > Date.now()) {
+              startCooldown(storedEnd);
+            } else {
+              uploadArea.style.display = 'flex';
+            }
           } else {
             document.getElementById('eventTitle').innerText = "Etkinlik Bulunamadı";
             document.getElementById('eventSubtitle').innerText = "Belirtilen etkinlik kodu sistemde kayıtlı değil.";
@@ -518,12 +549,105 @@
       status.innerText = "";
     }
 
+    // ============================================================
+    // YÜKLEME AKIŞI - ALGISAL HIZ + GERÇEK ARKA PLAN YÜKLEMESİ
+    // ============================================================
+    // İstek: Misafir "Fotoğrafı Gönder" butonuna bastığında 2-3 saniye
+    // içinde "gönderildi" bildirimini görsün; gerçek Drive yüklemesi ise
+    // kesintiye uğramadan arka planda kendi süresinde tamamlansın. Ayrıca
+    // aynı cihaz butona bastıktan sonra en az 30 saniye boyunca yeni bir
+    // fotoğraf yükleyemesin.
+    //
+    // Çalışma şekli:
+    //  1) Butona basılır basılmaz gerçek fetch() isteği HEMEN başlar,
+    //     arayüz onu beklemez.
+    //  2) FAKE_SUCCESS_DELAY_MS (2.5 sn) sonra, gerçek isteğin durumundan
+    //     bağımsız olarak "gönderildi" bildirimi gösterilir.
+    //  3) Buton tıklama anından itibaren UPLOAD_COOLDOWN_MS (30 sn) dolana
+    //     kadar yeni fotoğraf seçilemez; kalan süre geri sayım olarak
+    //     gösterilir. Süre dolunca seçim ekranı tekrar açılır.
+    //  4) Gerçek yükleme arka planda başarısız olursa (ör. geçici ağ
+    //     sorunu), kullanıcıyı rahatsız etmeden bir kez daha otomatik
+    //     denenir. Yine başarısız olursa sadece konsola loglanır; bu
+    //     noktada kullanıcıya zaten "gönderildi" bildirimi gösterilmiş
+    //     olabileceğinden arayüzde geriye dönük bir hata gösterilmez.
+    // ============================================================
+
+    const FAKE_SUCCESS_DELAY_MS = 2500;  // Algısal "hızlı yükleme" için sabit bekleme
+    const UPLOAD_COOLDOWN_MS = 30000;    // Buton tıklamasından itibaren minimum bekleme
+
+    let cooldownInterval = null;
+
+    function setChangeBtnDisabled(disabled) {
+      const changeBtn = document.querySelector('.change-photo-btn');
+      if (changeBtn) {
+        changeBtn.disabled = disabled;
+        changeBtn.style.opacity = disabled ? '0.4' : '1';
+        changeBtn.style.pointerEvents = disabled ? 'none' : 'auto';
+      }
+    }
+
+    // Gerçek yüklemeyi yapar; başarısız olursa (ağ hatası, geçici sunucu
+    // sorunu vb.) kullanıcıyı hiç bekletmeden arka planda bir kez daha dener.
+    function attemptUpload(payload, isRetry) {
+      return fetch(scriptURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .catch(() => ({ status: 'error', message: 'network', __networkError: true }))
+        .then(data => {
+          if (data.status !== 'success' && !isRetry) {
+            return attemptUpload(payload, true);
+          }
+          return data;
+        });
+    }
+
+    // "endTime" (Date.now() cinsinden bitiş zamanı) dolana kadar geri sayım
+    // gösterir; süre dolunca yeni fotoğraf seçim ekranını açar. endTime
+    // localStorage'a yazılır ki sayfa yenilense bile bekleme atlatılamasın.
+    function startCooldown(endTime) {
+      uploadArea.style.display = 'none';
+      previewContainer.style.display = 'none';
+      uploadBtn.style.display = 'none';
+      setChangeBtnDisabled(true);
+
+      setStoredCooldownEnd(endTime);
+      clearInterval(cooldownInterval);
+
+      function tick() {
+        const remainingMs = endTime - Date.now();
+        const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+
+        if (remainingMs <= 0) {
+          clearInterval(cooldownInterval);
+          clearStoredCooldownEnd();
+          setChangeBtnDisabled(false);
+          resetSelection();
+          status.innerText = "Başka bir fotoğraf daha yükleyebilirsiniz.";
+          status.style.color = "var(--text-light)";
+          return;
+        }
+
+        status.innerText = `Harika! Fotoğrafınız gönderildi 🎉 \nYeni fotoğrafı ${remainingSec} saniye sonra yükleyebilirsiniz.`;
+        status.style.color = "var(--success)";
+      }
+
+      tick();
+      cooldownInterval = setInterval(tick, 1000);
+    }
+
     function uploadFile() {
       if (!optimizedBase64 || !currentEventId) return;
 
+      const clickTime = Date.now();
+
       uploadBtn.disabled = true;
       uploadBtn.innerHTML = '<span class="loader"></span> Yükleniyor...';
-      status.innerText = "Lütfen bekleyin, fotoğraf Drive'a aktarılıyor...";
+      setChangeBtnDisabled(true);
+      status.innerText = "Lütfen bekleyin, fotoğrafınız gönderiliyor...";
       status.style.color = "var(--text-light)";
 
       const payload = {
@@ -531,24 +655,22 @@
         name: Date.now() + "_" + originalFileName, mimeType: uploadMimeType, file: optimizedBase64
       };
 
-      fetch(scriptURL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
-      .then(response => response.json())
-      .then(data => {
-        if (data.status === 'success') {
-          status.innerText = "Harika! Fotoğraf başarıyla gönderildi 🎉";
-          status.style.color = "var(--success)";
-          setTimeout(() => { resetSelection(); status.innerText = "Başka bir fotoğraf daha yükleyebilirsiniz."; status.style.color = "var(--text-light)"; }, 3000);
-        } else {
-          status.innerText = data.message || "Fotoğraf gönderilemedi. Lütfen tekrar deneyin.";
-          status.style.color = "var(--error)";
-          uploadBtn.disabled = false; uploadBtn.innerText = "Tekrar Dene";
+      // Gerçek yükleme hemen, arka planda başlar - arayüz bunu beklemez.
+      attemptUpload(payload, false).then(data => {
+        if (data.status !== 'success') {
+          console.error('Arka planda fotoğraf yükleme hatası:', data.message || data);
         }
-      })
-      .catch(error => {
-        status.innerText = "Bağlantı hatası! İnternetinizi kontrol edin.";
-        status.style.color = "var(--error)";
-        uploadBtn.disabled = false; uploadBtn.innerText = "Tekrar Dene";
       });
+
+      // Algısal "gönderildi" bildirimi, gerçek yüklemenin durumundan
+      // bağımsız olarak sabit bir sürede tetiklenir. Bekleme süresinin
+      // bitiş zamanı, buton tıklama anına göre (2.5sn'lik algısal
+      // gecikmeden bağımsız) hesaplanır ki toplam kilit süresi her zaman
+      // tam 30 saniye olsun.
+      const cooldownEndTime = clickTime + UPLOAD_COOLDOWN_MS;
+      setTimeout(() => {
+        startCooldown(cooldownEndTime);
+      }, FAKE_SUCCESS_DELAY_MS);
     }
   </script>
 </body>
